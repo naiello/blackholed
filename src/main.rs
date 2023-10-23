@@ -4,6 +4,8 @@ use futures::stream::FuturesUnordered;
 use anyhow::Result;
 use simple_logger::SimpleLogger;
 
+use blackholed::config::*;
+
 async fn download(name: &str, url: &str) -> Result<()> {
     let content = reqwest::get(url).await?.bytes().await?;
     let filename = format!("./blocklists/{}.hosts", name);
@@ -18,12 +20,12 @@ async fn download(name: &str, url: &str) -> Result<()> {
 async fn main() -> Result<()> {
     SimpleLogger::new().init().unwrap();
 
-    let adlists = tokio::fs::read_to_string("adlists.txt").await?;
+    let config = Config::load();
 
-    adlists
-        .lines()
-        .flat_map(|line| line.split_once(" "))
-        .map(|(name, url)| download(name, url).inspect_err(move |e| log::warn!("download of {} failed: {}", url, e)))
+    config.blocklists
+        .iter()
+        .map(|BlocklistConfig { name, url }| download(name, url)
+             .inspect_err(move |e| log::warn!("download of {} failed: {}", url, e)))
         .collect::<FuturesUnordered<_>>()
         .collect::<Vec<_>>()
         .await;
