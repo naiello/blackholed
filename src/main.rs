@@ -10,7 +10,7 @@ use blackholed::writer::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    SimpleLogger::new().init().expect("Logger did not initialize");
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init().expect("Logger did not initialize");
 
     let config = Config::load();
     let loader = WebLoader::new();
