@@ -23,7 +23,7 @@ fn extract_hostname(line: &str) -> Option<&str> {
         .filter(|h| is_hostname(h));
 
     if hostname.is_none() && !cleaned.is_empty() {
-        log::warn!("skipping malformed line: {}", line);
+        log::warn!("skipping line: {}", line);
     }
 
     hostname.copied()
@@ -36,7 +36,7 @@ fn strip_comments(line: &str) -> &str {
 }
 
 fn is_hostname(token: &str) -> bool {
-    HOSTNAME_RE.is_match(token)
+    HOSTNAME_RE.is_match(token) && token != "localhost"
 }
 
 #[cfg(test)]
