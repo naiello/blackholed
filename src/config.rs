@@ -9,7 +9,6 @@ pub struct BlocklistConfig {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Config {
-    pub blocklist_storage_dir: PathBuf,
     pub hosts_file: PathBuf,
     pub blackhole_address: Ipv4Addr,
     pub blocklists: Vec<BlocklistConfig>,
@@ -18,7 +17,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            blocklist_storage_dir: "/var/db/blackholed".into(),
             hosts_file: "hosts.blocked".into(),
             blackhole_address: "0.0.0.0".parse().expect("Hardcoded address should parse"),
             blocklists: vec![
