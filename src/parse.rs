@@ -46,14 +46,19 @@ mod tests {
     #[test]
     fn test_parse_blocklist() {
         let input = vec![
+            "#comment",
+            "d1.example.com # comment",
+            "127.0.0.1 d2.example.com #comment",
             "example.com", 
-            "127.0.0.1 sub2.example.com", 
+            "127.0.0.1 d3.example.com", 
             "invalid_host"
         ].join("\n");
 
         let expected = vec![
+            "d1.example.com",
+            "d2.example.com",
             "example.com",
-            "sub2.example.com",
+            "d3.example.com",
         ];
 
         assert_eq!(parse_blocklist(&input), expected);
