@@ -12,6 +12,7 @@ config = "0.13.3"
 futures = "0.3.28"
 lazy_static = "1.4.0"
 log = "0.4.20"
+nix = { version = "0.27.1", features = ["signal"] }
 regex = "1.10.2"
 reqwest = "0.11.20"
 serde = "1.0.190"

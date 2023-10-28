@@ -4,6 +4,7 @@ use anyhow::Result;
 use simple_logger::SimpleLogger;
 
 use blackholed::config::*;
+use blackholed::dnsmasq::*;
 use blackholed::loader::*;
 use blackholed::parse::*;
 use blackholed::writer::*;
@@ -32,6 +33,11 @@ async fn main() -> Result<()> {
         .count();
 
     log::info!("blocked {} hosts", blocked_count);
+
+    let hup_result = restart_dnsmasq(&config.dnsmasq);
+    if hup_result.is_err() {
+        log::error!("Failed to HUP dnsmasq: {}", hup_result.unwrap_err());
+    }
 
     Ok(())
 }
