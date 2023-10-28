@@ -12,7 +12,7 @@ use blackholed::writer::*;
 async fn main() -> Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Info).init().expect("Logger did not initialize");
 
-    let config = Config::load();
+    let config = Config::load()?;
     let loader = WebLoader::new();
     let mut writer = FilesystemHostsWriter::new(
         &config.hosts_file, 
@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
 
     let blocked_count = config.blocklists
         .iter()
-        .map(|cfg| loader.load(cfg))
+        .map(|(name, cfg)| loader.load(name, cfg))
         .collect::<FuturesUnordered<_>>()
         .collect::<Vec<_>>()
         .await

@@ -6,7 +6,7 @@ use crate::config::BlocklistConfig;
 
 #[async_trait]
 pub trait Loader {
-    async fn load(&self, blocklist: &BlocklistConfig) -> Result<String>;
+    async fn load(&self, name: &str, cfg: &BlocklistConfig) -> Result<String>;
 }
 
 pub struct WebLoader {
@@ -20,16 +20,16 @@ impl WebLoader {
 
 #[async_trait]
 impl Loader for WebLoader {
-    async fn load(&self, blocklist: &BlocklistConfig) -> Result<String> {
-        log::info!("downloading blocklist '{}' from: {}", blocklist.name, blocklist.url);
+    async fn load(&self, name: &str, cfg: &BlocklistConfig) -> Result<String> {
+        log::info!("downloading blocklist '{}' from: {}", name, cfg.url);
 
-        let raw = reqwest::get(blocklist.url.to_owned())
+        let raw = reqwest::get(cfg.url.to_owned())
             .await?
             .text()
-            .inspect_err(|e| log::warn!("failed to download blocklist '{}': {}", blocklist.name, e))
+            .inspect_err(|e| log::warn!("failed to download cfg '{}': {}", name, e))
             .await?;
 
-        log::info!("download complete for blocklist '{}'", blocklist.name);
+        log::info!("download complete for cfg '{}'", name);
         Ok(raw)
     }
 }

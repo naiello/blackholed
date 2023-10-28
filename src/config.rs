@@ -1,17 +1,20 @@
+use anyhow::Result;
 use std::path::PathBuf;
 use std::net::Ipv4Addr;
+use std::collections::HashMap;
+use serde::Deserialize;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize)]
 pub struct BlocklistConfig {
-    pub name: String,
     pub url: String,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub hosts_file: PathBuf,
     pub blackhole_address: Ipv4Addr,
-    pub blocklists: Vec<BlocklistConfig>,
+    pub blocklists: HashMap<String, BlocklistConfig>,
 }
 
 impl Default for Config {
@@ -19,17 +22,21 @@ impl Default for Config {
         Config {
             hosts_file: "hosts.blocked".into(),
             blackhole_address: "0.0.0.0".parse().expect("Hardcoded address should parse"),
-            blocklists: vec![
-                BlocklistConfig { name: "adaway".into(), url: "https://adaway.org/hosts.txt".into()},
-                BlocklistConfig { name: "adguard-dns".into(), url: "https://v.firebog.net/hosts/AdguardDNS.txt".into() }
-            ],
+            blocklists: HashMap::new(),
         }
     }
 }
 
 impl Config {
-    pub fn load() -> Self {
-        Config::default()
+    pub fn load() -> Result<Self> {
+        let cfg = config::Config::builder()
+            .add_source(config::File::with_name("/etc/blackholed/blackholed").required(false))
+            .add_source(config::File::with_name(".blackholed").required(false))
+            .add_source(config::Environment::with_prefix("BLACKHOLED"))
+            .build()?
+            .try_deserialize()?;
+
+        Ok(cfg)
     }
 }
 
