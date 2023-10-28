@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::path::PathBuf;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::collections::HashMap;
 use serde::Deserialize;
 
@@ -30,6 +30,8 @@ pub struct BlocklistConfig {
 pub struct Config {
     pub hosts_file: PathBuf,
     pub blackhole_address: Ipv4Addr,
+    pub blackhole_address_v6: Ipv6Addr,
+    pub blackhole_v6: bool,
     pub blocklists: HashMap<String, BlocklistConfig>,
     pub dnsmasq: DnsmasqConfig,
 }
@@ -39,6 +41,8 @@ impl Default for Config {
         Config {
             hosts_file: "/var/db/blackholed/hosts".into(),
             blackhole_address: "0.0.0.0".parse().expect("Hardcoded address should parse"),
+            blackhole_address_v6: "::1".parse().expect("Hardcoded address should parse"),
+            blackhole_v6: true,
             blocklists: HashMap::new(),
             dnsmasq: DnsmasqConfig::default(),
         }

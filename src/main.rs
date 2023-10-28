@@ -15,10 +15,7 @@ async fn main() -> Result<()> {
 
     let config = Config::load()?;
     let loader = WebLoader::new();
-    let mut writer = FilesystemHostsWriter::new(
-        &config.hosts_file, 
-        &config.blackhole_address.into(),
-    )?;
+    let mut writer = FilesystemHostsWriter::new(&config)?;
 
     let blocked_count = config.blocklists
         .iter()
