@@ -25,6 +25,7 @@ impl Loader for WebLoader {
 
         let raw = reqwest::get(cfg.url.to_owned())
             .await?
+            .error_for_status()?
             .text()
             .inspect_err(|e| log::warn!("failed to download cfg '{}': {}", name, e))
             .await?;
