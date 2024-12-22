@@ -19,7 +19,6 @@ Here's an example configuration:
 
 ```toml
 hosts_file="/var/db/blackholed/hosts"  # location to store the generated hosts file
-blackhole_address="0.0.0.0"  # sinkhole address
 
 [dnsmasq]
 hup_after_refresh=true  # after refreshing, attempt to SIGHUP the running dnsmasq process
@@ -41,7 +40,7 @@ url="https://adaway.org/hosts.txt"
 
 ## Use with dnsmasq
 
-In order to use the blocklist with `dnsmasq`, ensure your system configures the `--addn-hosts`
+In order to use the blocklist with `dnsmasq`, ensure your system configures the `--servers-file`
 option to point to the generated blocklist (in `/var/db/blackholed/hosts` by default). The
 `dnsmasq.hup_after_refresh` and `dnsmasq.pid_file` config options tell `blackholed` to send
 a SIGUP to dnsmasq after a refresh cycle is complete in order to pick up the updates to the hosts
