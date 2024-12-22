@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .collect::<Vec<_>>()
         .await
         .iter()
-        .flat_map(|content| content)
+        .flatten()
         .flat_map(|content| parse_blocklist(&content))
         .inspect(|host| writer.write(host).expect("Failed writing to hosts file"))
         .count();
