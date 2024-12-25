@@ -16,6 +16,13 @@ pub fn parse_blocklist(content: &str) -> Vec<&str> {
         .collect()
 }
 
+pub fn parse_allowlist(content: &str) -> Vec<&str> {
+    content.lines()
+        .map(|line| strip_comments(line).trim())
+        .filter(|line| !line.is_empty() && is_hostname(line))
+        .collect()
+}
+
 fn extract_hostname(line: &str) -> Option<&str> {
     let cleaned = strip_comments(line).trim();
     let tokens = cleaned.split_whitespace().take(2).collect::<Vec<&str>>();
@@ -51,7 +58,7 @@ mod tests {
             "127.0.0.1 d2.example.com #comment",
             "example.com", 
             "127.0.0.1 d3.example.com", 
-            "invalid_host"
+            "www.zdjecie-facebook-zdj3425jeio.dkonto.pl",
         ].join("\n");
 
         let expected = vec![
@@ -59,6 +66,7 @@ mod tests {
             "d2.example.com",
             "example.com",
             "d3.example.com",
+            "www.zdjecie-facebook-zdj3425jeio.dkonto.pl",
         ];
 
         assert_eq!(parse_blocklist(&input), expected);

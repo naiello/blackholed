@@ -20,15 +20,18 @@ impl Default for DnsmasqConfig {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize)]
-pub struct BlocklistConfig {
-    pub url: String,
+#[serde(untagged)]
+pub enum DomainListSource {
+    Web { url: String },
+    Local { file: String },
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub hosts_file: PathBuf,
-    pub blocklists: HashMap<String, BlocklistConfig>,
+    pub blocklists: HashMap<String, DomainListSource>,
+    pub allowlists: HashMap<String, DomainListSource>,
     pub dnsmasq: DnsmasqConfig,
 }
 
@@ -37,6 +40,7 @@ impl Default for Config {
         Config {
             hosts_file: "/var/db/blackholed/hosts".into(),
             blocklists: HashMap::new(),
+            allowlists: HashMap::new(),
             dnsmasq: DnsmasqConfig::default(),
         }
     }

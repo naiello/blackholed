@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Info).init().expect("Logger did not initialize");
 
     let config = Config::load()?;
-    let loader = WebLoader::new();
+    let loader = DefaultLoader::new();
     let mut writer = FilesystemHostsWriter::new(&config)?;
 
     let blocked_count = config.blocklists
@@ -26,10 +26,24 @@ async fn main() -> Result<()> {
         .iter()
         .flatten()
         .flat_map(|content| parse_blocklist(&content))
-        .inspect(|host| writer.write(host).expect("Failed writing to hosts file"))
+        .inspect(|host| writer.write_blocked(host).expect("Failed writing to hosts file"))
         .count();
 
     log::info!("blocked {} hosts", blocked_count);
+
+    let allowed_count = config.allowlists
+        .iter()
+        .map(|(name, cfg)| loader.load(name, cfg))
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await
+        .iter()
+        .flatten()
+        .flat_map(|content| parse_allowlist(&content))
+        .inspect(|host| writer.write_allowed(host).expect("Failed writing to hosts file"))
+        .count();
+
+    log::info!("allowed {} hosts", allowed_count);
 
     let hup_result = restart_dnsmasq(&config.dnsmasq);
     if hup_result.is_err() {

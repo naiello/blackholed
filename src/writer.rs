@@ -6,7 +6,8 @@ use anyhow::Result;
 use crate::config::Config;
 
 pub trait HostsWriter {
-    fn write(&mut self, hostname: &str) -> Result<()>;
+    fn write_blocked(&mut self, hostname: &str) -> Result<()>;
+    fn write_allowed(&mut self, hostname: &str) -> Result<()>;
 }
 
 pub struct FilesystemHostsWriter {
@@ -31,11 +32,15 @@ impl FilesystemHostsWriter {
 }
 
 impl HostsWriter for FilesystemHostsWriter {
-    fn write(&mut self, hostname: &str) -> Result<()> {
+    fn write_blocked(&mut self, hostname: &str) -> Result<()> {
         let line = format!("server=/{}/\n", hostname);
-
         self.writer.write_all(line.as_bytes())?;
+        Ok(())
+    }
 
+    fn write_allowed(&mut self, hostname: &str) -> Result<()> {
+        let line = format!("server=/{}/#\n", hostname);
+        self.writer.write_all(line.as_bytes())?;
         Ok(())
     }
 }
