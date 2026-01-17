@@ -1,7 +1,5 @@
 pub mod blocklist;
 pub mod config;
-pub mod dnsmasq;
-pub mod loader;
-pub mod parse;
+pub mod db;
+pub mod model;
 pub mod server;
-pub mod writer;

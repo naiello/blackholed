@@ -1,7 +1,10 @@
-use std::env;
+use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
-use blackholed::server::{start_server, ServerConfig};
+use blackholed::{
+    db::SqlDb,
+    server::{start_server, ServerConfig},
+};
 use hickory_server::resolver::config::NameServerConfigGroup;
 
 #[tokio::main]
@@ -16,9 +19,16 @@ async fn main() -> Result<()> {
     let config = ServerConfig {
         upstream: NameServerConfigGroup::cloudflare_tls(),
         port: 5353,
+        cache_size: 10000,
     };
 
-    start_server(config)
+    let db = Arc::new(
+        SqlDb::new_sqlite("blackholed.db")
+            .await
+            .context("Failed to initialize SQLite")?,
+    );
+
+    start_server(config, db)
         .await
         .context("Failed to start server")?
         .block_until_done()

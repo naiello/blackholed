@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use hickory_server::{
@@ -13,30 +13,25 @@ use hickory_server::{
 };
 use tokio::net::{TcpSocket, UdpSocket};
 
-use crate::blocklist::{BlocklistAuthority, BlocklistConfig, BlocklistDisposition};
+use crate::blocklist::{BlocklistAuthority, BlocklistConfig, BlocklistProvider};
 
 pub struct ServerConfig {
     pub port: u16,
     pub upstream: NameServerConfigGroup,
+    pub cache_size: usize,
 }
 
-pub async fn start_server(config: ServerConfig) -> Result<ServerFuture<Catalog>> {
+pub async fn start_server(
+    config: ServerConfig,
+    provider: Arc<impl BlocklistProvider + Send + Sync + 'static>,
+) -> Result<ServerFuture<Catalog>> {
     let mut opts = ResolverOpts::default();
     opts.edns0 = true;
+    opts.cache_size = config.cache_size;
 
-    let blocklist = Arc::new(BlocklistAuthority::new(
-        ".".into_name()?,
-        &BlocklistConfig::default(),
-    ));
-    let blocked = {
-        let mut h = HashMap::new();
-        h.insert(
-            LowerName::from_str("amazon.com.")?,
-            BlocklistDisposition::Block,
-        );
-        h
-    };
-    blocklist.load(blocked).await;
+    let blocklist = Arc::new(
+        BlocklistAuthority::new(".".into_name()?, &BlocklistConfig::default(), provider).await,
+    );
     let upstream_config = ForwardConfig {
         name_servers: config.upstream,
         options: Some(opts),

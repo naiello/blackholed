@@ -1,6 +1,8 @@
-use std::{collections::HashMap, io, iter, net::SocketAddr};
+use std::{collections::HashMap, io, iter, net::SocketAddr, str::FromStr, sync::Arc};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use tokio::sync::{broadcast, RwLock};
 
@@ -16,6 +18,8 @@ use hickory_server::{
     server::RequestInfo,
 };
 
+use crate::model::{HostDisposition, SourceHost};
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct BlockEvent {
     pub time: DateTime<Utc>,
@@ -24,37 +28,73 @@ pub struct BlockEvent {
     pub record_type: RecordType,
 }
 
-pub struct BlocklistAuthority {
+pub struct BlocklistAuthority<BP: BlocklistProvider> {
     origin: LowerName,
-    blocklist: RwLock<HashMap<LowerName, BlocklistDisposition>>,
+    blocklist: RwLock<HashMap<LowerName, HostDisposition>>,
     wildcard_match: bool,
     min_wildcard_depth: u8,
     blocked_tx: broadcast::Sender<BlockEvent>,
+    provider: Arc<BP>,
 }
 
-pub enum BlocklistDisposition {
-    Block,
-    Allow,
-}
-
-impl BlocklistAuthority {
-    pub fn new(origin: Name, config: &BlocklistConfig) -> Self {
+impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
+    pub async fn new(origin: Name, config: &BlocklistConfig, provider: Arc<BP>) -> Self {
         let (blocked_tx, _) = broadcast::channel(1024);
-        Self {
+        let authority = Self {
             origin: origin.into(),
             blocklist: RwLock::new(HashMap::new()),
             wildcard_match: config.wildcard_match,
             min_wildcard_depth: config.min_wildcard_depth,
             blocked_tx,
-        }
+            provider,
+        };
+
+        authority.reload().await;
+
+        authority
     }
 
-    pub fn block_events(&self) -> broadcast::Receiver<BlockEvent> {
+    pub fn subscribe_block_events(&self) -> broadcast::Receiver<BlockEvent> {
         self.blocked_tx.subscribe()
     }
 
-    pub async fn load(&self, blocklist: HashMap<LowerName, BlocklistDisposition>) {
-        *self.blocklist.write().await = blocklist
+    pub async fn reload(&self) {
+        log::info!("Reloading blocklist");
+
+        let mut blocked = self
+            .provider
+            .get_blocked_hosts()
+            .filter_map(|host| async move {
+                LowerName::from_str(&host.name)
+                    .map(|name| (name, HostDisposition::Block))
+                    .inspect_err(|err| log::error!("Skipping invalid blocklist host: {:?}", err))
+                    .ok()
+            })
+            .collect::<HashMap<_, _>>()
+            .await;
+
+        let allowed = self
+            .provider
+            .get_allowed_hosts()
+            .filter_map(|host| async move {
+                LowerName::from_str(&host.name)
+                    .map(|name| (name, HostDisposition::Allow))
+                    .inspect_err(|err| log::error!("Skipping invalid allowlist host: {:?}", err))
+                    .ok()
+            })
+            .collect::<HashMap<_, _>>()
+            .await;
+
+        log::info!(
+            "Reload resulted in {} blocked, {} allowed hosts",
+            blocked.len(),
+            allowed.len()
+        );
+
+        blocked.extend(allowed);
+        *self.blocklist.write().await = blocked;
+
+        log::info!("Blocklist reload complete");
     }
 
     fn wildcards(&self, host: &Name) -> Vec<LowerName> {
@@ -81,12 +121,12 @@ impl BlocklistAuthority {
         log::trace!("match_list: {:?}", match_list);
         let blocklist = self.blocklist.read().await;
         let disposition = match_list.iter().find_map(|entry| blocklist.get(entry));
-        matches!(disposition, Some(BlocklistDisposition::Block))
+        matches!(disposition, Some(HostDisposition::Block))
     }
 }
 
-#[async_trait::async_trait]
-impl Authority for BlocklistAuthority {
+#[async_trait]
+impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
     type Lookup = BlocklistLookup;
 
     fn zone_type(&self) -> ZoneType {
@@ -147,7 +187,7 @@ impl Authority for BlocklistAuthority {
         if matches!(result, LookupControlFlow::Break(_)) {
             let event = BlockEvent {
                 time: Utc::now(),
-                src: request_info.src.clone(),
+                src: request_info.src,
                 name: request_info.query.name().clone(),
                 record_type: request_info.query.query_type(),
             };
@@ -213,4 +253,7 @@ impl LookupObject for BlocklistLookup {
     }
 }
 
-pub trait BlocklistLoader {}
+pub trait BlocklistProvider {
+    fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost>;
+    fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost>;
+}
