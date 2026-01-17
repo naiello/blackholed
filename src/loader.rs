@@ -13,6 +13,12 @@ pub trait Loader {
 pub struct DefaultLoader {
 }
 
+impl Default for DefaultLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultLoader {
     pub fn new() -> Self {
         DefaultLoader { }

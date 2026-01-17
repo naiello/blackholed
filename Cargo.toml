@@ -6,16 +6,20 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.75"
+anyhow = "1.0.100"
 async-trait = "0.1.74"
+chrono = "0.4.43"
 config = "0.13.3"
 futures = "0.3.28"
+hickory-server = { version = "0.25.2", features = ["resolver", "rustls-platform-verifier", "tls-aws-lc-rs"] }
 lazy_static = "1.4.0"
 log = "0.4.20"
 nix = { version = "0.27.1", features = ["signal"] }
 openssl = { version = "0.10.68", features = ["vendored"] }
+pretty_env_logger = "0.5.0"
 regex = "1.10.2"
 reqwest = { version = "0.11.20", features = ["rustls-tls"] }
+rustls = "0.23.36"
 serde = "1.0.190"
 simple_logger = "4.2.0"
-tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs", "sync"] }

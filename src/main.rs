@@ -1,54 +1,27 @@
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
-use anyhow::Result;
-use simple_logger::SimpleLogger;
+use std::env;
 
-use blackholed::config::*;
-use blackholed::dnsmasq::*;
-use blackholed::loader::*;
-use blackholed::parse::*;
-use blackholed::writer::*;
+use anyhow::{Context, Result};
+use blackholed::server::{start_server, ServerConfig};
+use hickory_server::resolver::config::NameServerConfigGroup;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    SimpleLogger::new().with_level(log::LevelFilter::Info).init().expect("Logger did not initialize");
-
-    let config = Config::load()?;
-    let loader = DefaultLoader::new();
-    let mut writer = FilesystemHostsWriter::new(&config)?;
-
-    let blocked_count = config.blocklists
-        .iter()
-        .map(|(name, cfg)| loader.load(name, cfg))
-        .collect::<FuturesUnordered<_>>()
-        .collect::<Vec<_>>()
-        .await
-        .iter()
-        .flatten()
-        .flat_map(|content| parse_blocklist(&content))
-        .inspect(|host| writer.write_blocked(host).expect("Failed writing to hosts file"))
-        .count();
-
-    log::info!("blocked {} hosts", blocked_count);
-
-    let allowed_count = config.allowlists
-        .iter()
-        .map(|(name, cfg)| loader.load(name, cfg))
-        .collect::<FuturesUnordered<_>>()
-        .collect::<Vec<_>>()
-        .await
-        .iter()
-        .flatten()
-        .flat_map(|content| parse_allowlist(&content))
-        .inspect(|host| writer.write_allowed(host).expect("Failed writing to hosts file"))
-        .count();
-
-    log::info!("allowed {} hosts", allowed_count);
-
-    let hup_result = restart_dnsmasq(&config.dnsmasq);
-    if hup_result.is_err() {
-        log::error!("Failed to HUP dnsmasq: {}", hup_result.unwrap_err());
+    if env::var("BLACKHOLE_LOG").is_err() {
+        env::set_var("BLACKHOLE_LOG", "info");
     }
+    pretty_env_logger::try_init_timed_custom_env("BLACKHOLE_LOG")?;
 
-    Ok(())
+    log::info!("Initializing");
+
+    let config = ServerConfig {
+        upstream: NameServerConfigGroup::cloudflare_tls(),
+        port: 5353,
+    };
+
+    start_server(config)
+        .await
+        .context("Failed to start server")?
+        .block_until_done()
+        .await
+        .context("DNS server exited with an error")
 }
