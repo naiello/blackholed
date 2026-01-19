@@ -1,11 +1,7 @@
 use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
-use blackholed::{
-    db::SqlDb,
-    server::{start_server, ServerConfig},
-};
-use hickory_server::resolver::config::NameServerConfigGroup;
+use blackholed::{db::SqlDb, eventstore::RedisEventStore, resolver};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,11 +12,11 @@ async fn main() -> Result<()> {
 
     log::info!("Initializing");
 
-    let config = ServerConfig {
-        upstream: NameServerConfigGroup::cloudflare_tls(),
-        port: 5353,
-        cache_size: 10000,
-    };
+    let eventstore = Arc::new(
+        RedisEventStore::new(Default::default())
+            .await
+            .context("Failed to initialize Redis EventStore")?,
+    );
 
     let db = Arc::new(
         SqlDb::new_sqlite("blackholed.db")
@@ -28,7 +24,7 @@ async fn main() -> Result<()> {
             .context("Failed to initialize SQLite")?,
     );
 
-    start_server(config, db)
+    resolver::start(Default::default(), db, eventstore)
         .await
         .context("Failed to start server")?
         .block_until_done()

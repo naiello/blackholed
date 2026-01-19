@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use sqlx::{sqlite::SqliteConnectOptions, Database, Executor, Pool, Row, Sqlite, SqlitePool};
@@ -93,8 +93,7 @@ impl Db for SqlDb<Sqlite> {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move {
                 let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid disposition: {}", disposition_str))?;
+                let disposition = HostDisposition::from_str(&disposition_str)?;
 
                 Ok(Source {
                     id: row.try_get("id")?,
@@ -122,8 +121,7 @@ impl Db for SqlDb<Sqlite> {
         .context("Failed to fetch source")?;
 
         let disposition_str: String = row.try_get("disposition")?;
-        let disposition = HostDisposition::from_str(&disposition_str)
-            .ok_or_else(|| anyhow::anyhow!("Invalid disposition: {}", disposition_str))?;
+        let disposition = HostDisposition::from_str(&disposition_str)?;
 
         Ok(Source {
             id: row.try_get("id")?,
@@ -176,8 +174,7 @@ impl Db for SqlDb<Sqlite> {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move {
                 let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid disposition: {}", disposition_str))?;
+                let disposition = HostDisposition::from_str(&disposition_str)?;
 
                 Ok(SourceHost {
                     name: row.try_get("name")?,
@@ -202,8 +199,7 @@ impl Db for SqlDb<Sqlite> {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move {
                 let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid disposition: {}", disposition_str))?;
+                let disposition = HostDisposition::from_str(&disposition_str)?;
 
                 Ok(SourceHost {
                     name: row.try_get("name")?,
@@ -231,8 +227,7 @@ impl Db for SqlDb<Sqlite> {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move {
                 let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid disposition: {}", disposition_str))?;
+                let disposition = HostDisposition::from_str(&disposition_str)?;
 
                 Ok(SourceHost {
                     name: row.try_get("name")?,

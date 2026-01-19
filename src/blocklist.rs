@@ -1,7 +1,7 @@
-use std::{collections::HashMap, io, iter, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, io, iter, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use tokio::sync::{broadcast, RwLock};
@@ -17,16 +17,10 @@ use hickory_server::{
     },
     server::RequestInfo,
 };
+use tokio_util::task::AbortOnDropHandle;
 
-use crate::model::{HostDisposition, SourceHost};
-
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub struct BlockEvent {
-    pub time: DateTime<Utc>,
-    pub src: SocketAddr,
-    pub name: LowerName,
-    pub record_type: RecordType,
-}
+use crate::eventstore::EventStore;
+use crate::model::{BlockEvent, HostDisposition, SourceHost};
 
 pub struct BlocklistAuthority<BP: BlocklistProvider> {
     origin: LowerName,
@@ -35,11 +29,29 @@ pub struct BlocklistAuthority<BP: BlocklistProvider> {
     min_wildcard_depth: u8,
     blocked_tx: broadcast::Sender<BlockEvent>,
     provider: Arc<BP>,
+    _event_logger: AbortOnDropHandle<()>,
+}
+
+struct BlocklistAuthorityEventLogger<ES: EventStore> {
+    eventstore: Arc<ES>,
+    blocked_rx: broadcast::Receiver<BlockEvent>,
 }
 
 impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
-    pub async fn new(origin: Name, config: &BlocklistConfig, provider: Arc<BP>) -> Self {
-        let (blocked_tx, _) = broadcast::channel(1024);
+    pub async fn new<ES: EventStore + Send + Sync + 'static>(
+        origin: Name,
+        config: &BlocklistConfig,
+        provider: Arc<BP>,
+        eventstore: Arc<ES>,
+    ) -> Self {
+        let (blocked_tx, blocked_rx) = broadcast::channel(1024);
+
+        let mut event_logger = BlocklistAuthorityEventLogger {
+            eventstore: eventstore.clone(),
+            blocked_rx,
+        };
+        let event_logger_handle = tokio::spawn(async move { event_logger.run().await });
+
         let authority = Self {
             origin: origin.into(),
             blocklist: RwLock::new(HashMap::new()),
@@ -47,15 +59,12 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             min_wildcard_depth: config.min_wildcard_depth,
             blocked_tx,
             provider,
+            _event_logger: AbortOnDropHandle::new(event_logger_handle),
         };
 
         authority.reload().await;
 
         authority
-    }
-
-    pub fn subscribe_block_events(&self) -> broadcast::Receiver<BlockEvent> {
-        self.blocked_tx.subscribe()
     }
 
     pub async fn reload(&self) {
@@ -256,4 +265,27 @@ impl LookupObject for BlocklistLookup {
 pub trait BlocklistProvider {
     fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost>;
     fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost>;
+}
+
+impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {
+    async fn run(&mut self) {
+        log::info!("Starting BlocklistAuthority event persistence task");
+
+        loop {
+            match self.blocked_rx.recv().await {
+                Ok(event) => {
+                    if let Err(e) = self.eventstore.put_block_event(&event).await {
+                        log::error!("Failed to persist block event to EventStore: {}", e);
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    log::warn!("Event persistence task lagged, skipped {} events", skipped);
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    log::error!("Block event channel closed, stopping persistence task");
+                    break;
+                }
+            }
+        }
+    }
 }

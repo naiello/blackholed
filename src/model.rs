@@ -1,4 +1,11 @@
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+};
+
+use anyhow::bail;
 use chrono::{DateTime, Utc};
+use hickory_server::proto::rr::{LowerName, RecordType};
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -14,14 +21,38 @@ impl HostDisposition {
             HostDisposition::Allow => "Allow",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for HostDisposition {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Block" => Some(HostDisposition::Block),
-            "Allow" => Some(HostDisposition::Allow),
-            _ => None,
+            "Block" => Ok(HostDisposition::Block),
+            "Allow" => Ok(HostDisposition::Allow),
+            _ => bail!("{s} is not a valid HostDisposition"),
         }
     }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct EventStoreClient {
+    pub ip: IpAddr,
+    pub last_seen: DateTime<Utc>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct EventStoreBlockedEvent {
+    pub name: LowerName,
+    pub time: DateTime<Utc>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct BlockEvent {
+    pub time: DateTime<Utc>,
+    pub src: SocketAddr,
+    pub name: LowerName,
+    pub record_type: RecordType,
 }
 
 #[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
