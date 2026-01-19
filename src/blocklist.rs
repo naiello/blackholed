@@ -263,8 +263,8 @@ impl LookupObject for BlocklistLookup {
 }
 
 pub trait BlocklistProvider {
-    fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost>;
-    fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost>;
+    fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost> + Send;
+    fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost> + Send;
 }
 
 impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {

@@ -13,7 +13,6 @@ use hickory_server::{
 use tokio::net::{TcpSocket, UdpSocket};
 
 use crate::blocklist::{BlocklistAuthority, BlocklistProvider};
-use crate::eventstore::EventStore;
 
 pub struct ResolverConfig {
     pub port: u16,
@@ -31,17 +30,13 @@ impl Default for ResolverConfig {
     }
 }
 
-pub async fn start(
+pub async fn start<BP: BlocklistProvider + Send + Sync + 'static>(
     config: ResolverConfig,
-    provider: Arc<impl BlocklistProvider + Send + Sync + 'static>,
-    eventstore: Arc<impl EventStore + Send + Sync + 'static>,
+    blocklist: Arc<BlocklistAuthority<BP>>,
 ) -> Result<ServerFuture<Catalog>> {
     let mut opts = ResolverOpts::default();
     opts.edns0 = true;
     opts.cache_size = config.cache_size;
-
-    let blocklist =
-        BlocklistAuthority::new(Name::root(), &Default::default(), provider, eventstore).await;
 
     let upstream_config = ForwardConfig {
         name_servers: config.upstream,
@@ -52,10 +47,7 @@ pub async fn start(
         .map_err(|err| anyhow!("Forwarding authority did not build: {err}"))?;
 
     let mut catalog = Catalog::new();
-    catalog.upsert(
-        Name::root().into(),
-        vec![Arc::new(blocklist), Arc::new(upstream)],
-    );
+    catalog.upsert(Name::root().into(), vec![blocklist, Arc::new(upstream)]);
 
     let addr = format!("0.0.0.0:{}", config.port)
         .parse()

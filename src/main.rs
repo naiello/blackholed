@@ -1,7 +1,14 @@
 use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
-use blackholed::{db::SqlDb, eventstore::RedisEventStore, resolver};
+use blackholed::{
+    blocklist::BlocklistAuthority,
+    db::SqlDb,
+    eventstore::RedisEventStore,
+    resolver,
+    sourceloader::{SourceLoader, SourceLoaderConfig},
+};
+use hickory_server::resolver::Name;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,7 +31,21 @@ async fn main() -> Result<()> {
             .context("Failed to initialize SQLite")?,
     );
 
-    resolver::start(Default::default(), db, eventstore)
+    let blocklist = Arc::new(
+        BlocklistAuthority::new(
+            Name::root(),
+            &Default::default(),
+            db.clone(),
+            eventstore.clone(),
+        )
+        .await,
+    );
+
+    let _loader = SourceLoader::new(SourceLoaderConfig::default(), db, blocklist.clone())
+        .await
+        .context("Failed to start SourceLoader")?;
+
+    resolver::start(Default::default(), blocklist.clone())
         .await
         .context("Failed to start server")?
         .block_until_done()

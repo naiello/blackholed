@@ -19,20 +19,20 @@ pub struct SqlDb<DB: Database> {
 pub trait Db {
     async fn put_source(&self, source: Source) -> Result<()>;
     async fn delete_source(&self, id: &str) -> Result<()>;
-    fn get_all_sources(&self) -> impl Stream<Item = Source>;
+    fn get_all_sources(&self) -> impl Stream<Item = Source> + Send;
     async fn get_source(&self, id: &str) -> Result<Source>;
     async fn put_host(&self, host: SourceHost) -> Result<()>;
     async fn delete_host(&self, name: &str, source_id: &str) -> Result<()>;
-    fn get_hosts_by_source(&self, source_id: &str) -> impl Stream<Item = SourceHost>;
+    fn get_hosts_by_source(&self, source_id: &str) -> impl Stream<Item = SourceHost> + Send;
     fn get_hosts_by_disposition(
         &self,
         disposition: HostDisposition,
-    ) -> impl Stream<Item = SourceHost>;
+    ) -> impl Stream<Item = SourceHost> + Send;
     fn get_stale_hosts_by_source(
         &self,
         source_id: &str,
         updated_before: DateTime<Utc>,
-    ) -> impl Stream<Item = SourceHost>;
+    ) -> impl Stream<Item = SourceHost> + Send;
 }
 
 impl SqlDb<Sqlite> {

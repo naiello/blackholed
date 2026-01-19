@@ -19,15 +19,17 @@ in the case of multiple matching wildcard entries. Entries in the table can eith
 If a domain is blocked, this authority will emit a message over a tokio broadcast channel to notify other components of the event (for eventual storage in Redis), including the 
 request source address, domain, record type, and timestamp.
 
-## Updater (not implemented)
+## Source Loader
 
-The updater is a component that runs periodically to identify sources that have either file paths or URLs. The updater will periodically execute the following sequence:
+The loader is a component that runs periodically to identify sources that have either file paths or URLs. The updater will periodically execute the following sequence:
 1. Check the SQL database for any sources that have URLs or file paths defined that have not been updated in more than a week
 2. Downloads (for URLs) or loads from disk (for file paths) the new version of the source
 3. Parses the source list
 4. Loads the hosts into the SQL database
 5. Finds all hosts in the SQL database where the updated_at timestamp is older than the time we started this refresh run and deletes them
 6. Triggers the BlocklistAuthority to reload its list of blocked and allowed hosts
+
+### Parser
 
 When a blocklist is loaded, each line is parsed according to the following rules:
 ```
@@ -73,7 +75,7 @@ The web UI also allows for management of sources. Users can do the following:
 
 ## Persistence
 
-### SQL Database
+### SQL Database (SQLite)
 
 Implementation: `src/db.rs`
 Model: `src/model.rs`
@@ -84,7 +86,7 @@ The SQL database is used to persist durable data. It has the following tables:
 
 The implementation uses the `sqlx` library for database access.
 
-### Valkey (not implemented)
+### Event Store (Valkey)
 
 The valkey instance is used to persist ephemeral, high-volume data. 
 
