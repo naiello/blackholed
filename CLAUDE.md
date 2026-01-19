@@ -44,12 +44,12 @@ A domain may or may not include a trailing `.`. If there is no trailing `.`, one
 
 If loading from a file or URL, all entries must have the same disposition (Block or Allow). For manually-managed sources, Block/Allow can be mix/matched.
 
-## Web Components (not implemented)
+## Web Components
 
-The web components are implemented using Axum, HTMX, and TailwindCSS. It listens on port 5355 by default. The UI provides a minimal and clean interface for users to interact with
+The web components are implemented using Axum, HTMX,and TailwindCSS. It listens on port 5355 by default. The UI provides a minimal and clean interface for users to interact with
 their `blackholed` instance.
 
-### Management API (not implemented)
+### Management API
 
 The management API is available under the `/api` route and allows the following tasks:
 1. Create, read, delete, list all blocklist/allowlist sources (backed by the SQL database)

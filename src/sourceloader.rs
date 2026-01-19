@@ -23,8 +23,8 @@ pub struct SourceLoaderConfig {
 impl Default for SourceLoaderConfig {
     fn default() -> Self {
         Self {
-            run_interval: TimeDelta::minutes(1),
-            stale_age: TimeDelta::seconds(30),
+            run_interval: TimeDelta::hours(6),
+            stale_age: TimeDelta::days(7),
         }
     }
 }
@@ -158,20 +158,21 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             source.id
         );
 
-        for parsed_host in parsed_hosts {
-            let host = SourceHost {
+        let hosts: Vec<SourceHost> = parsed_hosts
+            .into_iter()
+            .map(|parsed_host| SourceHost {
                 name: parsed_host.name.to_string(),
                 source_id: source.id.clone(),
                 disposition: source.disposition,
                 created_at: refresh_time,
                 updated_at: refresh_time,
-            };
+            })
+            .collect();
 
-            self.db
-                .put_host(host)
-                .await
-                .with_context(|| format!("Failed to upsert host: {}", parsed_host.name))?;
-        }
+        self.db
+            .put_hosts(hosts)
+            .await
+            .context("Failed to upsert hosts")?;
 
         let stale_hosts: Vec<SourceHost> = self
             .db

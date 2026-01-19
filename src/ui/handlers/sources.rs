@@ -1,0 +1,327 @@
+use anyhow;
+use askama::Template;
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Redirect, Response},
+    Form,
+};
+use chrono::Utc;
+use serde::Deserialize;
+
+use crate::{
+    api::{
+        error::ApiError,
+        model::{encode_next_token, HostResponse, PaginatedResponse, SourceResponse, PAGE_SIZE},
+        state::ApiState,
+        validation::{validate_and_normalize_domain, validate_source_id},
+    },
+    db::{Db, SqlDb},
+    eventstore::RedisEventStore,
+    model::{HostDisposition, Source, SourceHost},
+    ui::templates::{NewSourceTemplate, SourceDetailTemplate, SourceListTemplate},
+};
+use sqlx::Sqlite;
+
+type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
+
+#[derive(Deserialize)]
+pub struct SourcesQuery {
+    pub next_token: Option<String>,
+}
+
+pub async fn list_sources(
+    State(state): State<ConcreteState>,
+    Query(query): Query<SourcesQuery>,
+) -> Result<Response, ApiError> {
+    // Decode pagination token
+    let offset = query
+        .next_token
+        .as_ref()
+        .and_then(|t| crate::api::model::decode_next_token(t))
+        .unwrap_or(0);
+
+    // Fetch sources from database (fetch PAGE_SIZE + 1 to detect if more exist)
+    let mut sources = state
+        .db
+        .get_all_sources_paginated(PAGE_SIZE + 1, offset)
+        .await
+        .map_err(|e| ApiError::Internal(e))?;
+
+    // Determine if there are more results
+    let next_token = if sources.len() > PAGE_SIZE {
+        sources.pop();
+        Some(encode_next_token(offset + PAGE_SIZE))
+    } else {
+        None
+    };
+
+    // Convert to response models
+    let sources = PaginatedResponse {
+        items: sources
+            .into_iter()
+            .map(|s| SourceResponse {
+                id: s.id,
+                url: s.url,
+                path: s.path,
+                disposition: s.disposition,
+                created_at: s.created_at,
+                updated_at: s.updated_at,
+            })
+            .collect(),
+        next_token,
+    };
+
+    let template = SourceListTemplate { sources };
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Template error: {}", e)))?,
+    )
+    .into_response())
+}
+
+pub async fn new_source_form() -> Result<Response, ApiError> {
+    let template = NewSourceTemplate { error: None };
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Template error: {}", e)))?,
+    )
+    .into_response())
+}
+
+#[derive(Deserialize)]
+pub struct CreateSourceForm {
+    pub id: String,
+    pub disposition: String,
+    pub url: Option<String>,
+    pub path: Option<String>,
+}
+
+pub async fn create_source(
+    State(state): State<ConcreteState>,
+    Form(form): Form<CreateSourceForm>,
+) -> Result<Response, ApiError> {
+    // Validate source ID
+    validate_source_id(&form.id)?;
+
+    // Parse disposition
+    let disposition: HostDisposition = form
+        .disposition
+        .parse()
+        .map_err(|_| ApiError::BadRequest("Invalid disposition".into()))?;
+
+    // Clean up empty strings to None
+    let url = form.url.filter(|s| !s.is_empty());
+    let path = form.path.filter(|s| !s.is_empty());
+
+    // Create source
+    let now = Utc::now();
+    let source = Source {
+        id: form.id.clone(),
+        url,
+        path,
+        disposition,
+        created_at: now,
+        updated_at: now,
+    };
+
+    state
+        .db
+        .put_source(source)
+        .await
+        .map_err(|e| ApiError::Internal(e))?;
+
+    // Reload blocklist
+    state.blocklist.reload().await;
+
+    // Redirect to source detail
+    Ok(Redirect::to(&format!("/sources/{}", form.id)).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct SourceDetailQuery {
+    pub next_token: Option<String>,
+}
+
+pub async fn source_detail(
+    State(state): State<ConcreteState>,
+    Path(id): Path<String>,
+    Query(query): Query<SourceDetailQuery>,
+) -> Result<Response, ApiError> {
+    // Fetch source
+    let source = state
+        .db
+        .get_source(&id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
+
+    // Convert to response model
+    let source_response = SourceResponse {
+        id: source.id.clone(),
+        url: source.url.clone(),
+        path: source.path.clone(),
+        disposition: source.disposition,
+        created_at: source.created_at,
+        updated_at: source.updated_at,
+    };
+
+    // If this is a manually-managed source, fetch hosts
+    let hosts = if source.url.is_none() && source.path.is_none() {
+        // Decode pagination token
+        let offset = query
+            .next_token
+            .as_ref()
+            .and_then(|t| crate::api::model::decode_next_token(t))
+            .unwrap_or(0);
+
+        // Fetch hosts (fetch PAGE_SIZE + 1 to detect if more exist)
+        let mut hosts = state
+            .db
+            .get_hosts_by_source_paginated(&source.id, PAGE_SIZE + 1, offset)
+            .await
+            .map_err(|e| ApiError::Internal(e))?;
+
+        // Determine if there are more results
+        let next_token = if hosts.len() > PAGE_SIZE {
+            hosts.pop();
+            Some(encode_next_token(offset + PAGE_SIZE))
+        } else {
+            None
+        };
+
+        // Convert to response models
+        Some(PaginatedResponse {
+            items: hosts
+                .into_iter()
+                .map(|h| HostResponse {
+                    name: h.name,
+                    source_id: h.source_id,
+                    disposition: h.disposition,
+                    created_at: h.created_at,
+                    updated_at: h.updated_at,
+                })
+                .collect(),
+            next_token,
+        })
+    } else {
+        None
+    };
+
+    let template = SourceDetailTemplate {
+        source: source_response,
+        hosts,
+    };
+    Ok(Html(
+        template
+            .render()
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Template error: {}", e)))?,
+    )
+    .into_response())
+}
+
+#[derive(Deserialize)]
+pub struct AddHostForm {
+    pub name: String,
+    pub disposition: String,
+}
+
+pub async fn add_host(
+    State(state): State<ConcreteState>,
+    Path(source_id): Path<String>,
+    Form(form): Form<AddHostForm>,
+) -> Result<Response, ApiError> {
+    // Verify source exists and is manually-managed
+    let source = state
+        .db
+        .get_source(&source_id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", source_id)))?;
+
+    if source.url.is_some() || source.path.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot manually add hosts to automatically-managed source".into(),
+        ));
+    }
+
+    // Validate and normalize domain
+    let normalized = validate_and_normalize_domain(&form.name)?;
+
+    // Parse disposition
+    let disposition: HostDisposition = form
+        .disposition
+        .parse()
+        .map_err(|_| ApiError::BadRequest("Invalid disposition".into()))?;
+
+    // Create host
+    let now = Utc::now();
+    let host = SourceHost {
+        name: normalized,
+        source_id: source_id.clone(),
+        disposition,
+        created_at: now,
+        updated_at: now,
+    };
+
+    state
+        .db
+        .put_hosts(vec![host])
+        .await
+        .map_err(|e| ApiError::Internal(e))?;
+
+    // Reload blocklist
+    state.blocklist.reload().await;
+
+    // Redirect back to source detail
+    Ok(Redirect::to(&format!("/sources/{}", source_id)).into_response())
+}
+
+pub async fn delete_host(
+    State(state): State<ConcreteState>,
+    Path((source_id, name)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    // Verify source exists and is manually-managed
+    let source = state
+        .db
+        .get_source(&source_id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", source_id)))?;
+
+    if source.url.is_some() || source.path.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot manually delete hosts from automatically-managed source".into(),
+        ));
+    }
+
+    // Delete host
+    state
+        .db
+        .delete_host(&name, &source_id)
+        .await
+        .map_err(|e| ApiError::Internal(e))?;
+
+    // Reload blocklist
+    state.blocklist.reload().await;
+
+    // Return empty response (HTMX will remove the row)
+    Ok((StatusCode::OK, Html("".to_string())).into_response())
+}
+
+pub async fn delete_source(
+    State(state): State<ConcreteState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    // Delete source
+    state
+        .db
+        .delete_source(&id)
+        .await
+        .map_err(|e| ApiError::Internal(e))?;
+
+    // Reload blocklist
+    state.blocklist.reload().await;
+
+    // Redirect to source list
+    Ok(Redirect::to("/sources").into_response())
+}

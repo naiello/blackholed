@@ -1,3 +1,4 @@
+pub mod api;
 pub mod blocklist;
 pub mod config;
 pub mod db;
@@ -6,3 +7,4 @@ pub mod model;
 pub mod parser;
 pub mod resolver;
 pub mod sourceloader;
+pub mod ui;

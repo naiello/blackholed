@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use hickory_server::{
     authority::Catalog,
     resolver::{
-        config::{NameServerConfigGroup, ResolverOpts},
+        config::{NameServerConfigGroup, ResolveHosts, ResolverOpts},
         Name,
     },
     store::forwarder::{ForwardAuthority, ForwardConfig},
@@ -23,7 +23,7 @@ pub struct ResolverConfig {
 impl Default for ResolverConfig {
     fn default() -> Self {
         Self {
-            port: 5353,
+            port: 53,
             upstream: NameServerConfigGroup::cloudflare_tls(),
             cache_size: 10000,
         }
@@ -37,6 +37,7 @@ pub async fn start<BP: BlocklistProvider + Send + Sync + 'static>(
     let mut opts = ResolverOpts::default();
     opts.edns0 = true;
     opts.cache_size = config.cache_size;
+    opts.use_hosts_file = ResolveHosts::Always;
 
     let upstream_config = ForwardConfig {
         name_servers: config.upstream,

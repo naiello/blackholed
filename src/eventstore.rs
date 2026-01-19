@@ -13,7 +13,18 @@ use tokio_util::task::AbortOnDropHandle;
 pub trait EventStore {
     async fn put_block_event(&self, event: &BlockEvent) -> Result<()>;
     async fn get_clients(&self) -> Result<Vec<EventStoreClient>>;
+    async fn get_clients_paginated(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreClient>>;
     async fn get_block_events_for_client(&self, ip: IpAddr) -> Result<Vec<EventStoreBlockedEvent>>;
+    async fn get_block_events_for_client_paginated(
+        &self,
+        ip: IpAddr,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreBlockedEvent>>;
 }
 
 pub struct RedisEventStoreConfig {
@@ -130,12 +141,68 @@ impl EventStore for RedisEventStoreConnection {
         Ok(clients)
     }
 
+    async fn get_clients_paginated(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreClient>> {
+        let mut conn = self.redis.clone();
+
+        // Get paginated results with scores, in reverse order (most recent first)
+        let start = offset as isize;
+        let stop = (offset + limit - 1) as isize;
+        let results: Vec<(String, f64)> = conn
+            .zrevrange_withscores("clients", start, stop)
+            .await
+            .context("Failed to get clients from Redis")?;
+
+        let clients = results
+            .into_iter()
+            .filter_map(|(ip_str, timestamp)| {
+                let ip = ip_str.parse::<IpAddr>().ok()?;
+                let last_seen = DateTime::from_timestamp(timestamp as i64, 0)?;
+                Some(EventStoreClient { ip, last_seen })
+            })
+            .collect();
+
+        Ok(clients)
+    }
+
     async fn get_block_events_for_client(&self, ip: IpAddr) -> Result<Vec<EventStoreBlockedEvent>> {
         let mut conn = self.redis.clone();
         let key = format!("blocked#{}", ip);
 
         let results: Vec<(String, f64)> = conn
             .zrange_withscores(&key, 0, -1)
+            .await
+            .context("Failed to get block events from Redis")?;
+
+        let events = results
+            .into_iter()
+            .filter_map(|(domain_str, timestamp)| {
+                let name = LowerName::from_str(&domain_str).ok()?;
+                let time = DateTime::from_timestamp(timestamp as i64, 0)?;
+                Some(EventStoreBlockedEvent { name, time })
+            })
+            .collect();
+
+        Ok(events)
+    }
+
+    async fn get_block_events_for_client_paginated(
+        &self,
+        ip: IpAddr,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreBlockedEvent>> {
+        let mut conn = self.redis.clone();
+        let key = format!("blocked#{}", ip);
+
+        // Get paginated results with scores, in reverse order (most recent first)
+        let start = offset as isize;
+        let stop = (offset + limit - 1) as isize;
+        let results: Vec<(String, f64)> = conn
+            .zrevrange_withscores(&key, start, stop)
             .await
             .context("Failed to get block events from Redis")?;
 
@@ -162,8 +229,27 @@ impl EventStore for RedisEventStore {
         self.conn.get_clients().await
     }
 
+    async fn get_clients_paginated(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreClient>> {
+        self.conn.get_clients_paginated(limit, offset).await
+    }
+
     async fn get_block_events_for_client(&self, ip: IpAddr) -> Result<Vec<EventStoreBlockedEvent>> {
         self.conn.get_block_events_for_client(ip).await
+    }
+
+    async fn get_block_events_for_client_paginated(
+        &self,
+        ip: IpAddr,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<EventStoreBlockedEvent>> {
+        self.conn
+            .get_block_events_for_client_paginated(ip, limit, offset)
+            .await
     }
 }
 

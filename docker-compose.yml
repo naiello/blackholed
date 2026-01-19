@@ -1,0 +1,33 @@
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: blackholed-valkey
+    restart: unless-stopped
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  blackholed:
+    build: .
+    container_name: blackholed
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "5355:5355/tcp"
+    volumes:
+      - blackholed-data:/data
+    environment:
+      - BLACKHOLE_LOG=info,hickory_server::server=warn
+      - REDIS_ENDPOINT=redis://valkey:6379
+    depends_on:
+      valkey:
+        condition: service_healthy
+
+volumes:
+  valkey-data:
+  blackholed-data:
