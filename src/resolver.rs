@@ -14,33 +14,19 @@ use tokio::net::{TcpSocket, UdpSocket};
 
 use crate::blocklist::{BlocklistAuthority, BlocklistProvider};
 
-pub struct ResolverConfig {
-    pub port: u16,
-    pub upstream: NameServerConfigGroup,
-    pub cache_size: usize,
-}
-
-impl Default for ResolverConfig {
-    fn default() -> Self {
-        Self {
-            port: 5353,
-            upstream: NameServerConfigGroup::cloudflare_tls(),
-            cache_size: 10000,
-        }
-    }
-}
-
 pub async fn start<BP: BlocklistProvider + Send + Sync + 'static>(
-    config: ResolverConfig,
+    port: u16,
+    upstream: NameServerConfigGroup,
+    cache_size: usize,
     blocklist: Arc<BlocklistAuthority<BP>>,
 ) -> Result<ServerFuture<Catalog>> {
     let mut opts = ResolverOpts::default();
     opts.edns0 = true;
-    opts.cache_size = config.cache_size;
+    opts.cache_size = cache_size;
     opts.use_hosts_file = ResolveHosts::Always;
 
     let upstream_config = ForwardConfig {
-        name_servers: config.upstream,
+        name_servers: upstream,
         options: Some(opts),
     };
     let upstream = ForwardAuthority::builder_tokio(upstream_config)
@@ -50,7 +36,7 @@ pub async fn start<BP: BlocklistProvider + Send + Sync + 'static>(
     let mut catalog = Catalog::new();
     catalog.upsert(Name::root().into(), vec![blocklist, Arc::new(upstream)]);
 
-    let addr = format!("0.0.0.0:{}", config.port)
+    let addr = format!("0.0.0.0:{}", port)
         .parse()
         .context("Listen address did not parse")?;
 

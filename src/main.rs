@@ -4,11 +4,12 @@ use anyhow::{Context, Result};
 use blackholed::{
     api::{self, state::ApiState},
     blocklist::BlocklistAuthority,
+    config::Config,
     db::{Db, SqlDb},
     eventstore::RedisEventStore,
     model::{HostDisposition, Source},
     resolver,
-    sourceloader::{SourceLoader, SourceLoaderConfig},
+    sourceloader::SourceLoader,
 };
 use chrono::Utc;
 use hickory_server::resolver::Name;
@@ -22,14 +23,23 @@ async fn main() -> Result<()> {
 
     log::info!("Initializing");
 
+    // Load configuration
+    let config = Config::load().context("Failed to load configuration")?;
+    log::info!("Configuration loaded successfully");
+
     let eventstore = Arc::new(
-        RedisEventStore::new(Default::default())
-            .await
-            .context("Failed to initialize Redis EventStore")?,
+        RedisEventStore::new(
+            config.eventstore.endpoint.clone(),
+            config.eventstore.event_ttl(),
+            config.eventstore.client_ttl(),
+            config.eventstore.sweeper_interval(),
+        )
+        .await
+        .context("Failed to initialize Redis EventStore")?,
     );
 
     let db = Arc::new(
-        SqlDb::new_sqlite("blackholed.db")
+        SqlDb::new_sqlite(&config.database.path)
             .await
             .context("Failed to initialize SQLite")?,
     );
@@ -37,7 +47,7 @@ async fn main() -> Result<()> {
     let blocklist = Arc::new(
         BlocklistAuthority::new(
             Name::root(),
-            &Default::default(),
+            &config.blocklist,
             db.clone(),
             eventstore.clone(),
         )
@@ -59,23 +69,34 @@ async fn main() -> Result<()> {
             .context("Failed to create webmanaged source")?;
     }
 
-    let _loader = SourceLoader::new(SourceLoaderConfig::default(), db.clone(), blocklist.clone())
-        .await
-        .context("Failed to start SourceLoader")?;
+    let _loader = SourceLoader::new(
+        config.sourceloader.run_interval(),
+        config.sourceloader.stale_age(),
+        db.clone(),
+        blocklist.clone(),
+    )
+    .await
+    .context("Failed to start SourceLoader")?;
 
     // Create API state and spawn server
     let api_state = ApiState::new(db.clone(), blocklist.clone(), eventstore.clone());
 
+    let api_port = config.api.port;
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = api::start_server(5355, api_state).await {
+        if let Err(e) = api::start_server(api_port, api_state).await {
             log::error!("API server error: {}", e);
         }
     });
 
     // Start DNS resolver
-    let mut dns_server = resolver::start(Default::default(), blocklist.clone())
-        .await
-        .context("Failed to start server")?;
+    let mut dns_server = resolver::start(
+        config.resolver.port,
+        config.resolver.upstream.to_nameserver_config_group()?,
+        config.resolver.cache_size,
+        blocklist.clone(),
+    )
+    .await
+    .context("Failed to start server")?;
 
     // Wait for both servers
     tokio::select! {

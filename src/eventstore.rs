@@ -27,24 +27,6 @@ pub trait EventStore {
     ) -> Result<Vec<EventStoreBlockedEvent>>;
 }
 
-pub struct RedisEventStoreConfig {
-    pub endpoint: String,
-    pub event_ttl: TimeDelta,
-    pub client_ttl: TimeDelta,
-    pub sweeper_interval: TimeDelta,
-}
-
-impl Default for RedisEventStoreConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "redis://127.0.0.1:6379".to_string(),
-            event_ttl: TimeDelta::hours(1),
-            client_ttl: TimeDelta::days(1),
-            sweeper_interval: TimeDelta::minutes(15),
-        }
-    }
-}
-
 pub struct RedisEventStore {
     conn: RedisEventStoreConnection,
     _sweeper: AbortOnDropHandle<()>,
@@ -64,23 +46,26 @@ struct RedisEventStoreSweeper {
 }
 
 impl RedisEventStore {
-    pub async fn new(config: RedisEventStoreConfig) -> Result<Self> {
-        let client =
-            redis::Client::open(config.endpoint).context("Failed to create Redis client")?;
+    pub async fn new(
+        endpoint: String,
+        event_ttl: TimeDelta,
+        client_ttl: TimeDelta,
+        sweeper_interval: TimeDelta,
+    ) -> Result<Self> {
+        let client = redis::Client::open(endpoint).context("Failed to create Redis client")?;
         let conn = RedisEventStoreConnection {
             redis: client
                 .get_multiplexed_async_connection()
                 .await
                 .context("Failed to open connection to Redis")?,
-            client_ttl: config.client_ttl,
+            client_ttl,
         };
 
         let sweeper = RedisEventStoreSweeper {
             conn: conn.clone(),
-            event_ttl: config.event_ttl,
-            client_ttl: config.client_ttl,
-            interval: config
-                .sweeper_interval
+            event_ttl,
+            client_ttl,
+            interval: sweeper_interval
                 .to_std()
                 .context("Invalid Redis sweeper interval")?,
         };

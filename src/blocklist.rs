@@ -3,7 +3,6 @@ use std::{collections::HashMap, io, iter, str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
-use serde::Deserialize;
 use tokio::sync::{broadcast, RwLock};
 
 use hickory_server::{
@@ -19,6 +18,7 @@ use hickory_server::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::config::BlocklistConfig;
 use crate::eventstore::EventStore;
 use crate::model::{BlockEvent, HostDisposition, SourceHost};
 
@@ -225,22 +225,6 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
         LookupControlFlow::Continue(Err(LookupError::from(io::Error::other(
             "Blocklist cannot serve NSEC records",
         ))))
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(default, deny_unknown_fields)]
-pub struct BlocklistConfig {
-    pub wildcard_match: bool,
-    pub min_wildcard_depth: u8,
-}
-
-impl Default for BlocklistConfig {
-    fn default() -> Self {
-        Self {
-            wildcard_match: true,
-            min_wildcard_depth: 2,
-        }
     }
 }
 

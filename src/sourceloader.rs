@@ -15,20 +15,6 @@ use crate::{
     model::{Source, SourceHost},
 };
 
-pub struct SourceLoaderConfig {
-    pub run_interval: TimeDelta,
-    pub stale_age: TimeDelta,
-}
-
-impl Default for SourceLoaderConfig {
-    fn default() -> Self {
-        Self {
-            run_interval: TimeDelta::hours(6),
-            stale_age: TimeDelta::days(7),
-        }
-    }
-}
-
 pub struct SourceLoader {
     _task: AbortOnDropHandle<()>,
 }
@@ -45,18 +31,16 @@ impl SourceLoader {
         DB: Db + Send + Sync + 'static,
         BP: BlocklistProvider + Send + Sync + 'static,
     >(
-        config: SourceLoaderConfig,
+        run_interval: TimeDelta,
+        stale_age: TimeDelta,
         db: Arc<DB>,
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
     ) -> Result<Self> {
         let task = SourceLoaderTask {
             db,
             blocklist_authority,
-            stale_age: config.stale_age,
-            run_interval: config
-                .run_interval
-                .to_std()
-                .context("Invalid run interval")?,
+            stale_age,
+            run_interval: run_interval.to_std().context("Invalid run interval")?,
         };
         let handle = tokio::spawn(async move { task.run().await });
         Ok(SourceLoader {

@@ -1,0 +1,58 @@
+# Example configuration file for blackholed
+# Copy this file to /etc/blackholed/blackholed.toml or ./blackholed.toml
+
+[database]
+# Path to the SQLite database file
+path = "blackholed.db"
+
+[api]
+# Port for the management API and web UI
+port = 5355
+
+[resolver]
+# Port for the DNS resolver
+port = 5353
+
+# DNS cache size (number of entries)
+cache_size = 10000
+
+# Upstream DNS provider configuration
+# Can be either a named provider or custom servers
+[resolver.upstream]
+# Use a well-known DNS provider (cloudflare, google, quad9, cloudflare_tls, google_tls, quad9_tls)
+provider = "cloudflare"
+
+# Or use custom DNS servers (not yet implemented)
+# servers = ["1.1.1.1:853", "8.8.8.8:853"]
+
+[eventstore]
+# Redis/Valkey endpoint
+endpoint = "redis://127.0.0.1:6379"
+
+# How long to keep block events in Redis (in seconds)
+# Default: 3600 (1 hour)
+event_ttl_secs = 3600
+
+# How long to keep client records in Redis (in seconds)
+# Default: 86400 (1 day)
+client_ttl_secs = 86400
+
+# How often to run the cleanup sweeper (in seconds)
+# Default: 900 (15 minutes)
+sweeper_interval_secs = 900
+
+[sourceloader]
+# How often to check for stale sources and refresh them (in seconds)
+# Default: 21600 (6 hours)
+run_interval_secs = 21600
+
+# Age at which a source is considered stale and needs refreshing (in seconds)
+# Default: 604800 (7 days)
+stale_age_secs = 604800
+
+[blocklist]
+# Enable wildcard matching for domains
+wildcard_match = true
+
+# Minimum depth for wildcard domains (e.g., 2 means *.example.com is allowed but *.com is not)
+min_wildcard_depth = 2
