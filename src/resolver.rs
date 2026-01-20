@@ -23,7 +23,7 @@ pub struct ResolverConfig {
 impl Default for ResolverConfig {
     fn default() -> Self {
         Self {
-            port: 53,
+            port: 5353,
             upstream: NameServerConfigGroup::cloudflare_tls(),
             cache_size: 10000,
         }

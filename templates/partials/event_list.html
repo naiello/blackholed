@@ -1,28 +1,28 @@
 {% if events.items.is_empty() %}
-<p class="text-gray-500 text-center py-8">No blocked domains found for this IP address.</p>
+<p class="text-gray-500 dark:text-gray-400 text-center py-8">No blocked domains found for this IP address.</p>
 {% else %}
 <div class="overflow-x-auto">
-    <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
+    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <thead class="bg-gray-50 dark:bg-gray-700">
             <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Domain
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Blocked At
                 </th>
-                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Actions
                 </th>
             </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {% for event in events.items %}
-            <tr class="hover:bg-gray-50">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="font-mono text-sm text-gray-900">{{ event.domain }}</span>
+                    <span class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ event.domain }}</span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {{ event.time.format("%Y-%m-%d %H:%M:%S UTC") }}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -32,7 +32,7 @@
                         hx-target="closest tr"
                         hx-swap="outerHTML"
                         hx-confirm="Allow {{ event.domain }} permanently?"
-                        class="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 transition"
+                        class="bg-green-600 dark:bg-green-500 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 dark:hover:bg-green-600 transition"
                     >
                         Allowlist
                     </button>
@@ -49,7 +49,7 @@
         hx-get="/?ip={{ current_ip }}&next_token={{ events.next_token.as_ref().unwrap() }}"
         hx-target="#events-list"
         hx-swap="innerHTML"
-        class="text-blue-600 hover:text-blue-800 font-medium"
+        class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
     >
         Load More
     </button>

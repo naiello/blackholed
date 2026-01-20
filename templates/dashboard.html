@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Blackholed{% endblock %}
+{% block title %}Dashboard - Blackhole DNS{% endblock %}
 
 {% block content %}
 <div class="max-w-6xl mx-auto">
-    <div class="bg-white rounded-lg shadow p-6 mb-6">
-        <h1 class="text-2xl font-bold mb-4">Blocked Domains</h1>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+        <h1 class="text-2xl font-bold dark:text-gray-100 mb-4">Blocked Domains</h1>
 
         <form method="get" class="mb-6">
-            <label class="block text-sm font-medium mb-2 text-gray-700">
-                Viewing blocked events for IP:
+            <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-200">
+                Recently blocked domains for IP:
             </label>
             <div class="flex gap-2">
                 <input
@@ -17,11 +17,11 @@
                     name="ip"
                     value="{{ current_ip }}"
                     placeholder="Enter IP address"
-                    class="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
                     type="submit"
-                    class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+                    class="bg-blue-600 dark:bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition"
                 >
                     View
                 </button>

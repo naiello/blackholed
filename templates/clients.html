@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Clients - Blackholed{% endblock %}
+{% block title %}Clients - Blackhole DNS{% endblock %}
 
 {% block content %}
 <div class="max-w-6xl mx-auto">
-    <div class="bg-white rounded-lg shadow p-6">
-        <h1 class="text-2xl font-bold mb-6">Active Clients</h1>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h1 class="text-2xl font-bold dark:text-gray-100 mb-6">Active Clients</h1>
 
         {% include "partials/client_list.html" %}
     </div>

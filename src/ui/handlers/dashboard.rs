@@ -140,8 +140,8 @@ pub async fn allowlist_domain(
 
     // Return success message (will replace the event row)
     let html = format!(
-        r#"<div class="p-4 border border-green-200 rounded bg-green-50">
-            <p class="text-green-800">
+        r#"<div class="p-4 border border-green-200 dark:border-green-800 rounded bg-green-50 dark:bg-green-900/20">
+            <p class="text-green-800 dark:text-green-200">
                 <strong class="font-mono">{}</strong> has been allowlisted permanently
             </p>
         </div>"#,
