@@ -39,7 +39,7 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            path: PathBuf::from("blackholed.db"),
+            path: PathBuf::from("/var/db/blackholed/blackholed.db"),
         }
     }
 }
