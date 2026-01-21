@@ -23,7 +23,7 @@
                     <span class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ client.ip }}</span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {{ client.last_seen.format("%Y-%m-%d %H:%M:%S UTC") }}
+                    <time class="local-time" datetime="{{ client.last_seen.to_rfc3339() }}">{{ client.last_seen.format("%Y-%m-%d %H:%M:%S UTC") }}</time>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <a href="/clients/{{ client.ip }}" class="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300">

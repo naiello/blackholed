@@ -23,7 +23,7 @@
                     <span class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ event.domain }}</span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {{ event.time.format("%Y-%m-%d %H:%M:%S UTC") }}
+                    <time class="local-time" datetime="{{ event.time.to_rfc3339() }}">{{ event.time.format("%Y-%m-%d %H:%M:%S UTC") }}</time>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
