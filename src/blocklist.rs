@@ -106,6 +106,39 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         log::info!("Blocklist reload complete");
     }
 
+    pub async fn reload_host(&self, name: &str) -> anyhow::Result<()> {
+        log::debug!("Reloading single host: {}", name);
+
+        let lower_name = LowerName::from_str(name)
+            .map_err(|err| anyhow::anyhow!("Invalid host name '{}': {:?}", name, err))?;
+
+        let host_records: Vec<SourceHost> = self.provider.get_host(name).collect().await;
+
+        let disposition = if host_records
+            .iter()
+            .any(|h| h.disposition == HostDisposition::Allow)
+        {
+            Some(HostDisposition::Allow)
+        } else if !host_records.is_empty() {
+            Some(HostDisposition::Block)
+        } else {
+            None
+        };
+
+        let mut blocklist = self.blocklist.write().await;
+        match disposition {
+            Some(d) => {
+                blocklist.insert(lower_name.clone(), d);
+            }
+            None => {
+                blocklist.remove(&lower_name);
+            }
+        }
+
+        log::info!("Reloaded single host {lower_name}");
+        Ok(())
+    }
+
     fn wildcards(&self, host: &Name) -> Vec<LowerName> {
         host.iter()
             .enumerate()
@@ -249,6 +282,7 @@ impl LookupObject for BlocklistLookup {
 pub trait BlocklistProvider {
     fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost> + Send;
     fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost> + Send;
+    fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> + Send;
 }
 
 impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {

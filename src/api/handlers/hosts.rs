@@ -51,7 +51,7 @@ pub async fn create_host(
     };
 
     state.db.put_hosts(vec![host.clone()]).await?;
-    state.blocklist.reload().await;
+    state.blocklist.reload_host(&host.name).await?;
 
     Ok(Json(HostResponse {
         name: host.name,
@@ -131,7 +131,7 @@ pub async fn delete_host(
     }
 
     state.db.delete_host(&name, &source_id).await?;
-    state.blocklist.reload().await;
+    state.blocklist.reload_host(&name).await?;
 
     Ok(Json(serde_json::json!({ "message": "Host deleted" })))
 }

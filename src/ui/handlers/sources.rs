@@ -266,12 +266,13 @@ pub async fn add_host(
 
     state
         .db
-        .put_hosts(vec![host])
+        .put_hosts(vec![host.clone()])
         .await
         .map_err(|e| ApiError::Internal(e))?;
 
     // Reload blocklist
-    state.blocklist.reload().await;
+    state.blocklist.reload_host(&host.name).await
+        .map_err(|e| ApiError::Internal(e))?;
 
     // Redirect back to source detail
     Ok(Redirect::to(&format!("/sources/{}", source_id)).into_response())
@@ -302,7 +303,8 @@ pub async fn delete_host(
         .map_err(|e| ApiError::Internal(e))?;
 
     // Reload blocklist
-    state.blocklist.reload().await;
+    state.blocklist.reload_host(&name).await
+        .map_err(|e| ApiError::Internal(e))?;
 
     // Return empty response (HTMX will remove the row)
     Ok((StatusCode::OK, Html("".to_string())).into_response())

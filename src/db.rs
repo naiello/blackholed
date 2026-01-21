@@ -37,6 +37,7 @@ pub trait Db {
         &self,
         disposition: HostDisposition,
     ) -> impl Stream<Item = SourceHost> + Send;
+    fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> + Send;
     fn get_stale_hosts_by_source(
         &self,
         source_id: &str,
@@ -329,6 +330,32 @@ impl Db for SqlDb<Sqlite> {
                 host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err)).ok()
             })
     }
+
+    fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> {
+        let name = name.to_string();
+        sqlx::query(
+            "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = ?",
+        )
+        .bind(name)
+        .fetch(&self.pool)
+        .map_err(anyhow::Error::from)
+        .and_then(|row| async move {
+            let disposition_str: String = row.try_get("disposition")?;
+            let disposition = HostDisposition::from_str(&disposition_str)?;
+
+            Ok(SourceHost {
+                name: row.try_get("name")?,
+                source_id: row.try_get("source_id")?,
+                disposition,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })
+        })
+        .filter_map(|host| async move {
+            host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                .ok()
+        })
+    }
 }
 
 impl BlocklistProvider for SqlDb<Sqlite> {
@@ -338,6 +365,10 @@ impl BlocklistProvider for SqlDb<Sqlite> {
 
     fn get_allowed_hosts(&self) -> impl Stream<Item = SourceHost> {
         self.get_hosts_by_disposition(HostDisposition::Allow)
+    }
+
+    fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> {
+        Db::get_host(self, name)
     }
 }
 

@@ -136,7 +136,8 @@ pub async fn allowlist_domain(
         .map_err(|e| ApiError::Internal(e))?;
 
     // Reload blocklist
-    state.blocklist.reload().await;
+    state.blocklist.reload_host(&normalized).await
+        .map_err(|e| ApiError::Internal(e))?;
 
     // Return success message (will replace the event row)
     let html = format!(

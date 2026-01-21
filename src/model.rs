@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use hickory_server::proto::rr::{LowerName, RecordType};
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum HostDisposition {
     Block,
     Allow,
