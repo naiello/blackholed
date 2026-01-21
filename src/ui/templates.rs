@@ -5,6 +5,17 @@ use crate::api::model::{
 };
 
 #[derive(Template)]
+#[template(path = "home.html")]
+pub struct HomeTemplate {}
+
+#[derive(Template)]
+#[template(path = "events.html")]
+pub struct EventsTemplate {
+    pub current_ip: String,
+    pub events: PaginatedResponse<BlockEventResponse>,
+}
+
+#[derive(Template)]
 #[template(path = "dashboard.html")]
 pub struct DashboardTemplate {
     pub current_ip: String,

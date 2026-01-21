@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Blackhole DNS{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+        <h1 class="text-4xl font-bold dark:text-gray-100 mb-6">Blackhole DNS</h1>
+
+        <div class="prose dark:prose-invert mb-8">
+            <p class="text-lg text-gray-700 dark:text-gray-300 mb-4">
+                Blackhole DNS is a DNS resolver that provides blocklist and allowlist functionality
+                to protect your network from unwanted domains.
+            </p>
+            <p class="text-gray-600 dark:text-gray-400 mb-6">
+                Automatically update blocklists from disk or URLs, monitor blocked domains in real-time,
+                and easily manage your allowlist through a self-service web interface.
+            </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4">
+            <a
+                href="/events"
+                class="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg transition text-center"
+            >
+                View recent block events
+            </a>
+            <a
+                href="/clients"
+                class="flex-1 bg-gray-600 hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition text-center"
+            >
+                View active clients
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
