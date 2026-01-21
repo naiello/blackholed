@@ -5,6 +5,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use futures::StreamExt;
 use tokio::{
     io::{AsyncBufRead, BufReader},
+    sync::mpsc,
     time,
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -19,11 +20,25 @@ pub struct SourceLoader {
     _task: AbortOnDropHandle<()>,
 }
 
+pub struct SourceLoaderHandle {
+    reload_tx: mpsc::Sender<String>,
+}
+
+impl SourceLoaderHandle {
+    pub async fn reload_source(&self, source_id: String) -> Result<()> {
+        self.reload_tx
+            .send(source_id)
+            .await
+            .context("Failed to send reload request")
+    }
+}
+
 struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
     db: Arc<DB>,
     blocklist_authority: Arc<BlocklistAuthority<BP>>,
     run_interval: Duration,
     stale_age: TimeDelta,
+    reload_rx: mpsc::Receiver<String>,
 }
 
 impl SourceLoader {
@@ -35,22 +50,28 @@ impl SourceLoader {
         stale_age: TimeDelta,
         db: Arc<DB>,
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, SourceLoaderHandle)> {
+        let (reload_tx, reload_rx) = mpsc::channel(32);
+
         let task = SourceLoaderTask {
             db,
             blocklist_authority,
             stale_age,
             run_interval: run_interval.to_std().context("Invalid run interval")?,
+            reload_rx,
         };
         let handle = tokio::spawn(async move { task.run().await });
-        Ok(SourceLoader {
-            _task: AbortOnDropHandle::new(handle),
-        })
+        Ok((
+            SourceLoader {
+                _task: AbortOnDropHandle::new(handle),
+            },
+            SourceLoaderHandle { reload_tx },
+        ))
     }
 }
 
 impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
-    async fn run(&self) {
+    async fn run(mut self) {
         log::info!("Starting SourceLoader background task");
 
         // Perform initial refresh immediately on startup
@@ -62,10 +83,54 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         // Then enter interval loop
         let mut interval = time::interval(self.run_interval);
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(err) = self.refresh_all().await {
+                        log::error!("Error while refreshing sources: {:?}", err);
+                    }
+                }
+                Some(source_id) = self.reload_rx.recv() => {
+                    log::info!("Manual reload requested for source: {}", source_id);
+                    if let Err(err) = self.handle_manual_reload(source_id).await {
+                        log::error!("Error during manual reload: {:?}", err);
+                    }
+                }
+            }
+        }
+    }
 
-            if let Err(err) = self.refresh_all().await {
-                log::error!("Error while refreshing sources: {:?}", err);
+    async fn handle_manual_reload(&self, source_id: String) -> Result<()> {
+        log::info!("Processing manual reload for source: {}", source_id);
+
+        // Fetch source from database
+        let source = match self.db.get_source(&source_id).await {
+            Ok(source) => source,
+            Err(err) => {
+                log::warn!("Source {} not found: {:?}", source_id, err);
+                bail!("Source not found");
+            }
+        };
+
+        // Verify source is auto-managed (has URL or path)
+        if source.url.is_none() && source.path.is_none() {
+            log::warn!(
+                "Source {} is manually-managed, cannot reload from URL/path",
+                source_id
+            );
+            bail!("Source is manually-managed");
+        }
+
+        // Perform refresh
+        let refresh_time = Utc::now();
+        match self.refresh(source.clone(), refresh_time).await {
+            Ok(_) => {
+                log::info!("Successfully completed manual reload for source: {}", source_id);
+                self.blocklist_authority.reload().await;
+                Ok(())
+            }
+            Err(err) => {
+                log::error!("Failed manual reload for source {}: {:?}", source_id, err);
+                Err(err)
             }
         }
     }

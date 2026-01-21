@@ -26,6 +26,10 @@ pub fn create_router(state: ConcreteState) -> Router {
         .route("/sources", post(handlers::sources::create_source))
         .route("/sources/:id", get(handlers::sources::source_detail))
         .route(
+            "/sources/:id/reload",
+            post(handlers::sources::reload_source),
+        )
+        .route(
             "/sources/:id/hosts",
             post(handlers::sources::add_host),
         )

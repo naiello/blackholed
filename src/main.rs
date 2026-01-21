@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
             .context("Failed to create webmanaged source")?;
     }
 
-    let _loader = SourceLoader::new(
+    let (_loader, loader_handle) = SourceLoader::new(
         config.sourceloader.run_interval(),
         config.sourceloader.stale_age(),
         db.clone(),
@@ -79,7 +79,12 @@ async fn main() -> Result<()> {
     .context("Failed to start SourceLoader")?;
 
     // Create API state and spawn server
-    let api_state = ApiState::new(db.clone(), blocklist.clone(), eventstore.clone());
+    let api_state = ApiState::new(
+        db.clone(),
+        blocklist.clone(),
+        eventstore.clone(),
+        Arc::new(loader_handle),
+    );
 
     let api_port = config.api.port;
     let api_handle = tokio::spawn(async move {

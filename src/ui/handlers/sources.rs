@@ -129,12 +129,21 @@ pub async fn create_source(
 
     state
         .db
-        .put_source(source)
+        .put_source(source.clone())
         .await
         .map_err(|e| ApiError::Internal(e))?;
 
-    // Reload blocklist
-    state.blocklist.reload().await;
+    // If source is auto-managed (has URL or path), trigger immediate reload
+    if source.url.is_some() || source.path.is_some() {
+        log::info!("Triggering automatic reload for new source: {}", source.id);
+        state
+            .sourceloader
+            .reload_source(source.id.clone())
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
+        // Note: blocklist will be reloaded automatically by the sourceloader after successful fetch
+    }
+    // Note: No need to reload blocklist for manually-managed sources - they're empty on creation
 
     // Redirect to source detail
     Ok(Redirect::to(&format!("/sources/{}", form.id)).into_response())
@@ -326,4 +335,44 @@ pub async fn delete_source(
 
     // Redirect to source list
     Ok(Redirect::to("/sources").into_response())
+}
+
+pub async fn reload_source(
+    State(state): State<ConcreteState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify source exists
+    let source = state
+        .db
+        .get_source(&id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
+
+    // Verify source is auto-managed (has URL or path)
+    if source.url.is_none() && source.path.is_none() {
+        return Err(ApiError::BadRequest(
+            "Cannot reload manually-managed source (no URL or path defined)".to_string(),
+        ));
+    }
+
+    // Trigger reload asynchronously (non-blocking)
+    state
+        .sourceloader
+        .reload_source(id.clone())
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
+
+    // Return success notification
+    let notification = format!(
+        r#"<div class="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded relative" role="alert">
+            <span class="block sm:inline">Source reload initiated. The list will be updated in the background.</span>
+            <script>
+                setTimeout(function() {{
+                    document.getElementById('notification-area').innerHTML = '';
+                }}, 5000);
+            </script>
+        </div>"#
+    );
+
+    Ok((StatusCode::OK, Html(notification)).into_response())
 }

@@ -42,7 +42,18 @@ pub async fn create_source(
     };
 
     state.db.put_source(source.clone()).await?;
-    state.blocklist.reload().await;
+
+    // If source is auto-managed (has URL or path), trigger immediate reload
+    if source.url.is_some() || source.path.is_some() {
+        log::info!("Triggering automatic reload for new source: {}", source.id);
+        state
+            .sourceloader
+            .reload_source(source.id.clone())
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
+        // Note: blocklist will be reloaded automatically by the sourceloader after successful fetch
+    }
+    // Note: No need to reload blocklist for manually-managed sources - they're empty on creation
 
     Ok(Json(SourceResponse {
         id: source.id,
@@ -127,4 +138,39 @@ pub async fn delete_source(
     state.blocklist.reload().await;
 
     Ok(Json(serde_json::json!({ "message": "Source deleted" })))
+}
+
+/// POST /api/sources/:id/reload - Trigger manual reload of a source
+pub async fn reload_source(
+    State(state): State<ConcreteState>,
+    Path(id): Path<String>,
+) -> ApiResult<(axum::http::StatusCode, Json<serde_json::Value>)> {
+    // Verify source exists
+    let source = state
+        .db
+        .get_source(&id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
+
+    // Verify source is auto-managed (has URL or path)
+    if source.url.is_none() && source.path.is_none() {
+        return Err(ApiError::BadRequest(
+            "Cannot reload manually-managed source (no URL or path defined)".to_string(),
+        ));
+    }
+
+    // Trigger reload asynchronously (non-blocking)
+    state
+        .sourceloader
+        .reload_source(id.clone())
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
+
+    Ok((
+        axum::http::StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "message": "Source reload initiated",
+            "source_id": id
+        })),
+    ))
 }

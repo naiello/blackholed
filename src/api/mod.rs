@@ -24,6 +24,10 @@ pub fn create_api_router(state: ConcreteState) -> Router {
         .route("/api/sources/:id", get(handlers::sources::get_source))
         .route("/api/sources/:id", delete(handlers::sources::delete_source))
         .route(
+            "/api/sources/:id/reload",
+            post(handlers::sources::reload_source),
+        )
+        .route(
             "/api/sources/:source_id/hosts",
             post(handlers::hosts::create_host),
         )
