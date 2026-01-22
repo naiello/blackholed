@@ -64,6 +64,8 @@ pub struct ResolverConfig {
     pub port: u16,
     pub upstream: UpstreamConfig,
     pub cache_size: usize,
+    #[serde(default)]
+    pub zones: Vec<ZoneConfig>,
 }
 
 impl Default for ResolverConfig {
@@ -72,8 +74,16 @@ impl Default for ResolverConfig {
             port: 5353,
             upstream: UpstreamConfig::default(),
             cache_size: 10000,
+            zones: Vec::new(),
         }
     }
+}
+
+/// Zone configuration for loading zones from files
+#[derive(Debug, Clone, Deserialize)]
+pub struct ZoneConfig {
+    pub name: String,
+    pub file: PathBuf,
 }
 
 /// Upstream DNS server configuration

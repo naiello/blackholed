@@ -98,6 +98,7 @@ async fn main() -> Result<()> {
         config.resolver.port,
         config.resolver.upstream.to_nameserver_config_group()?,
         config.resolver.cache_size,
+        config.resolver.zones,
         blocklist.clone(),
     )
     .await
