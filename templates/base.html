@@ -119,27 +119,54 @@
             updateIcon();
         });
 
-        // Convert UTC timestamps to local timezone
+        // Convert UTC timestamps to relative time format
         function convertTimestampsToLocal() {
             const timeElements = document.querySelectorAll('time.local-time');
             timeElements.forEach(function(element) {
                 const utcTime = element.getAttribute('datetime');
                 if (utcTime) {
                     const date = new Date(utcTime);
-                    // Format: YYYY-MM-DD HH:MM:SS [Timezone]
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffSec = Math.floor(diffMs / 1000);
+
+                    // Format exact date for title attribute
                     const year = date.getFullYear();
                     const month = String(date.getMonth() + 1).padStart(2, '0');
                     const day = String(date.getDate()).padStart(2, '0');
                     const hours = String(date.getHours()).padStart(2, '0');
                     const minutes = String(date.getMinutes()).padStart(2, '0');
                     const seconds = String(date.getSeconds()).padStart(2, '0');
-
-                    // Get timezone abbreviation
                     const timezone = new Intl.DateTimeFormat('en', { timeZoneName: 'short' })
                         .formatToParts(date)
                         .find(part => part.type === 'timeZoneName')?.value || '';
+                    const exactDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${timezone}`;
 
-                    element.textContent = `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${timezone}`;
+                    // Calculate relative time
+                    let relativeTime;
+                    if (diffSec < 10) {
+                        relativeTime = 'just now';
+                    } else if (diffSec < 60) {
+                        relativeTime = `${diffSec} seconds ago`;
+                    } else if (diffSec < 3600) {
+                        const minutes = Math.floor(diffSec / 60);
+                        relativeTime = minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+                    } else if (diffSec < 86400) {
+                        const hours = Math.floor(diffSec / 3600);
+                        relativeTime = hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+                    } else if (diffSec < 2592000) {
+                        const days = Math.floor(diffSec / 86400);
+                        relativeTime = days === 1 ? '1 day ago' : `${days} days ago`;
+                    } else if (diffSec < 31536000) {
+                        const months = Math.floor(diffSec / 2592000);
+                        relativeTime = months === 1 ? '1 month ago' : `${months} months ago`;
+                    } else {
+                        const years = Math.floor(diffSec / 31536000);
+                        relativeTime = years === 1 ? '1 year ago' : `${years} years ago`;
+                    }
+
+                    element.textContent = relativeTime;
+                    element.setAttribute('title', exactDate);
                 }
             });
         }
