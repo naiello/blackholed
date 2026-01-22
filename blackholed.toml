@@ -3,7 +3,7 @@
 
 [database]
 # Path to the SQLite database file
-path = "/var/db/blackholed/blackholed.db"
+path = "/var/db/blackhole/blackholed.db"
 
 [api]
 # Port for the management API and web UI

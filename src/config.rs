@@ -39,7 +39,7 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            path: PathBuf::from("/var/db/blackholed/blackholed.db"),
+            path: PathBuf::from("/var/db/blackhole/blackholed.db"),
         }
     }
 }
@@ -98,9 +98,12 @@ impl UpstreamConfig {
     pub fn to_nameserver_config_group(&self) -> Result<NameServerConfigGroup> {
         match self {
             UpstreamConfig::Named { provider } => match provider.to_lowercase().as_str() {
-                "cloudflare" | "cloudflare_tls" => Ok(NameServerConfigGroup::cloudflare_tls()),
-                "google" | "google_tls" => Ok(NameServerConfigGroup::google_tls()),
-                "quad9" | "quad9_tls" => Ok(NameServerConfigGroup::quad9_tls()),
+                "cloudflare" => Ok(NameServerConfigGroup::cloudflare()),
+                "google" => Ok(NameServerConfigGroup::google()),
+                "quad9" => Ok(NameServerConfigGroup::quad9()),
+                "cloudflare_tls" => Ok(NameServerConfigGroup::cloudflare_tls()),
+                "google_tls" => Ok(NameServerConfigGroup::google_tls()),
+                "quad9_tls" => Ok(NameServerConfigGroup::quad9_tls()),
                 _ => anyhow::bail!("Unknown DNS provider: {}", provider),
             },
             UpstreamConfig::Custom { servers } => {
@@ -225,7 +228,7 @@ impl Config {
     pub fn load() -> Result<Self> {
         let cfg = config::Config::builder()
             .add_source(
-                config::File::with_name("/etc/blackholed/blackholed")
+                config::File::with_name("/etc/blackhole/blackholed")
                     .format(config::FileFormat::Toml)
                     .required(false),
             )
