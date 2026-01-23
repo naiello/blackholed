@@ -155,7 +155,7 @@ pub async fn start_client_pause(
         <div> \
             <h3 class=\"font-semibold text-blue-900 dark:text-blue-100\">Client Pause Active</h3> \
             <p class=\"text-sm text-blue-800 dark:text-blue-200\"> \
-                Blocking is paused for <span class=\"font-mono\">{}</span> until \
+                Blocking will resume <span class=\"font-mono\">{}</span> until \
                 <time class=\"local-time\" datetime=\"{}\"> \
                     {} \
                 </time> \

@@ -7,7 +7,7 @@
         <div>
             <h3 class="font-semibold text-blue-900 dark:text-blue-100">Client Pause Active</h3>
             <p class="text-sm text-blue-800 dark:text-blue-200">
-                Blocking is paused for <span class="font-mono">{{ cp.ip }}</span> until
+                Blocking will resume for <span class="font-mono">{{ cp.ip }}</span>
                 <time class="local-time" datetime="{{ cp.expires_at.unwrap().to_rfc3339() }}">
                     {{ cp.expires_at.unwrap().format("%Y-%m-%d %H:%M:%S UTC") }}
                 </time>

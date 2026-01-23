@@ -149,26 +149,26 @@
         function formatFutureTime(diffSec) {
             // Check for >1000 years in the future (indefinite)
             if (diffSec > 31536000000) {
-                return 'indefinitely';
+                return 'never';
             } else if (diffSec < 10) {
-                return 'a few seconds from now';
+                return 'in a few seconds';
             } else if (diffSec < 60) {
-                return `${diffSec} seconds from now`;
+                return `in ${diffSec} seconds`;
             } else if (diffSec < 3600) {
                 const minutes = Math.floor(diffSec / 60);
-                return minutes === 1 ? '1 minute from now' : `${minutes} minutes from now`;
+                return minutes === 1 ? 'in 1 minute' : `in ${minutes} minutes`;
             } else if (diffSec < 86400) {
                 const hours = Math.floor(diffSec / 3600);
-                return hours === 1 ? '1 hour from now' : `${hours} hours from now`;
+                return hours === 1 ? 'in 1 hour' : `in ${hours} hours`;
             } else if (diffSec < 2592000) {
                 const days = Math.floor(diffSec / 86400);
-                return days === 1 ? '1 day from now' : `${days} days from now`;
+                return days === 1 ? 'in 1 day' : `in ${days} days`;
             } else if (diffSec < 31536000) {
                 const months = Math.floor(diffSec / 2592000);
-                return months === 1 ? '1 month from now' : `${months} months from now`;
+                return months === 1 ? 'in 1 month' : `in ${months} months`;
             } else {
                 const years = Math.floor(diffSec / 31536000);
-                return years === 1 ? '1 year from now' : `${years} years from now`;
+                return years === 1 ? 'in 1 year' : `in ${years} years`;
             }
         }
 
