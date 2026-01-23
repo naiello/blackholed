@@ -44,6 +44,27 @@ pub fn create_api_router(state: ConcreteState) -> Router {
             "/api/clients/:ip/events",
             get(handlers::events::list_client_events),
         )
+        .route(
+            "/api/pause/global",
+            post(handlers::pauses::start_global_pause),
+        )
+        .route(
+            "/api/pause/global",
+            delete(handlers::pauses::stop_global_pause),
+        )
+        .route("/api/pause/global", get(handlers::pauses::get_global_pause))
+        .route(
+            "/api/pause/clients/:ip",
+            post(handlers::pauses::start_client_pause),
+        )
+        .route(
+            "/api/pause/clients/:ip",
+            delete(handlers::pauses::stop_client_pause),
+        )
+        .route(
+            "/api/pause/clients/:ip",
+            get(handlers::pauses::get_client_pause),
+        )
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

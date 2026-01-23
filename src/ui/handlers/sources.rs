@@ -46,7 +46,7 @@ pub async fn list_sources(
         .db
         .get_all_sources_paginated(PAGE_SIZE + 1, offset)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Determine if there are more results
     let next_token = if sources.len() > PAGE_SIZE {
@@ -131,7 +131,7 @@ pub async fn create_source(
         .db
         .put_source(source.clone())
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // If source is auto-managed (has URL or path), trigger immediate reload
     if source.url.is_some() || source.path.is_some() {
@@ -190,7 +190,7 @@ pub async fn source_detail(
             .db
             .get_hosts_by_source_paginated(&source.id, PAGE_SIZE + 1, offset)
             .await
-            .map_err(|e| ApiError::Internal(e))?;
+            .map_err(ApiError::Internal)?;
 
         // Determine if there are more results
         let next_token = if hosts.len() > PAGE_SIZE {
@@ -277,11 +277,14 @@ pub async fn add_host(
         .db
         .put_hosts(vec![host.clone()])
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Reload blocklist
-    state.blocklist.reload_host(&host.name).await
-        .map_err(|e| ApiError::Internal(e))?;
+    state
+        .blocklist
+        .reload_host(&host.name)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Redirect back to source detail
     Ok(Redirect::to(&format!("/sources/{}", source_id)).into_response())
@@ -309,11 +312,14 @@ pub async fn delete_host(
         .db
         .delete_host(&name, &source_id)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Reload blocklist
-    state.blocklist.reload_host(&name).await
-        .map_err(|e| ApiError::Internal(e))?;
+    state
+        .blocklist
+        .reload_host(&name)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Return empty response (HTMX will remove the row)
     Ok((StatusCode::OK, Html("".to_string())).into_response())
@@ -328,7 +334,7 @@ pub async fn delete_source(
         .db
         .delete_source(&id)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Reload blocklist
     state.blocklist.reload().await;
@@ -363,16 +369,14 @@ pub async fn reload_source(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
 
     // Return success notification
-    let notification = format!(
-        r#"<div class="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded relative" role="alert">
+    let notification = r#"<div class="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded relative" role="alert">
             <span class="block sm:inline">Source reload initiated. The list will be updated in the background.</span>
             <script>
-                setTimeout(function() {{
+                setTimeout(function() {
                     document.getElementById('notification-area').innerHTML = '';
-                }}, 5000);
+                }, 5000);
             </script>
-        </div>"#
-    );
+        </div>"#.to_string();
 
     Ok((StatusCode::OK, Html(notification)).into_response())
 }

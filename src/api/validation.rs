@@ -28,7 +28,9 @@ pub fn validate_source_id(id: &str) -> Result<(), ApiError> {
 /// - Rejects invalid patterns like `*.com` or `*.`
 pub fn validate_and_normalize_domain(name: &str) -> Result<String, ApiError> {
     if name.is_empty() {
-        return Err(ApiError::BadRequest("Domain name cannot be empty".to_string()));
+        return Err(ApiError::BadRequest(
+            "Domain name cannot be empty".to_string(),
+        ));
     }
 
     let mut normalized = name.to_string();

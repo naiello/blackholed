@@ -23,7 +23,6 @@ async fn main() -> Result<()> {
 
     log::info!("Initializing");
 
-    // Load configuration
     let config = Config::load().context("Failed to load configuration")?;
     log::info!("Configuration loaded successfully");
 

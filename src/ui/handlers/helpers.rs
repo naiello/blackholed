@@ -3,7 +3,10 @@ use std::net::{IpAddr, SocketAddr};
 use axum::{extract::ConnectInfo, http::HeaderMap};
 
 /// Extract the client's IP address, considering proxy headers
-pub fn extract_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: &HeaderMap) -> IpAddr {
+pub fn extract_client_ip(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: &HeaderMap,
+) -> IpAddr {
     headers
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())

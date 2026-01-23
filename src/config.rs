@@ -7,6 +7,7 @@ use std::path::PathBuf;
 /// Main configuration structure for blackholed
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct Config {
     pub database: DatabaseConfig,
     pub api: ApiConfig,
@@ -14,19 +15,6 @@ pub struct Config {
     pub eventstore: EventStoreConfig,
     pub sourceloader: SourceLoaderConfig,
     pub blocklist: BlocklistConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            database: DatabaseConfig::default(),
-            api: ApiConfig::default(),
-            resolver: ResolverConfig::default(),
-            eventstore: EventStoreConfig::default(),
-            sourceloader: SourceLoaderConfig::default(),
-            blocklist: BlocklistConfig::default(),
-        }
-    }
 }
 
 /// Database configuration

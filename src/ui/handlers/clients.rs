@@ -7,19 +7,25 @@ use axum::{
     http::HeaderMap,
     response::{Html, IntoResponse, Response},
 };
+use chrono::Utc;
 use serde::Deserialize;
 
 use crate::{
     api::{
         error::ApiError,
-        model::{encode_next_token, BlockEventResponse, ClientResponse, PaginatedResponse, PAGE_SIZE},
+        model::{
+            encode_next_token, BlockEventResponse, ClientResponse, PaginatedResponse, PAGE_SIZE,
+        },
         state::ApiState,
     },
     db::SqlDb,
     eventstore::{EventStore, RedisEventStore},
     ui::{
         handlers::helpers::is_htmx_request,
-        templates::{ClientListTemplate, DashboardTemplate, EventListPartial},
+        templates::{
+            ClientListTemplate, ClientPauseInfo, DashboardTemplate, EventListPartial,
+            GlobalPauseInfo,
+        },
     },
 };
 use sqlx::Sqlite;
@@ -47,7 +53,7 @@ pub async fn list_clients(
         .eventstore
         .get_clients_paginated(PAGE_SIZE + 1, offset)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Determine if there are more results
     let next_token = if clients.len() > PAGE_SIZE {
@@ -57,19 +63,51 @@ pub async fn list_clients(
         None
     };
 
-    // Convert to response models
+    // Fetch global pause status
+    let global_pause = state
+        .eventstore
+        .get_global_pause()
+        .await
+        .map_err(ApiError::Internal)?;
+
+    let global_pause_info = GlobalPauseInfo {
+        is_paused: global_pause.is_some_and(|exp| exp > Utc::now()),
+        expires_at: global_pause,
+    };
+
+    // Fetch pause status for each client
+    let mut client_responses = Vec::new();
+    for c in clients {
+        let ip_addr = c.ip.to_string().parse::<IpAddr>().ok();
+        let (is_paused, pause_expires) = if let Some(ip) = ip_addr {
+            let pause = state
+                .eventstore
+                .get_client_pause(ip)
+                .await
+                .map_err(ApiError::Internal)?;
+            let is_paused = pause.is_some_and(|exp| exp > Utc::now());
+            (Some(is_paused), pause)
+        } else {
+            (None, None)
+        };
+
+        client_responses.push(ClientResponse {
+            ip: c.ip.to_string(),
+            last_seen: c.last_seen,
+            is_paused,
+            pause_expires,
+        });
+    }
+
     let clients = PaginatedResponse {
-        items: clients
-            .into_iter()
-            .map(|c| ClientResponse {
-                ip: c.ip.to_string(),
-                last_seen: c.last_seen,
-            })
-            .collect(),
+        items: client_responses,
         next_token,
     };
 
-    let template = ClientListTemplate { clients };
+    let template = ClientListTemplate {
+        clients,
+        global_pause: global_pause_info,
+    };
     Ok(Html(
         template
             .render()
@@ -106,7 +144,7 @@ pub async fn client_detail(
         .eventstore
         .get_block_events_for_client_paginated(ip, PAGE_SIZE + 1, offset)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Determine if there are more results
     let next_token = if events.len() > PAGE_SIZE {
@@ -140,7 +178,37 @@ pub async fn client_detail(
         )
         .into_response())
     } else {
-        let template = DashboardTemplate { current_ip, events };
+        // Fetch global pause status
+        let global_pause = state
+            .eventstore
+            .get_global_pause()
+            .await
+            .map_err(ApiError::Internal)?;
+
+        let global_pause_info = GlobalPauseInfo {
+            is_paused: global_pause.is_some_and(|exp| exp > Utc::now()),
+            expires_at: global_pause,
+        };
+
+        // Fetch client-specific pause status
+        let client_pause_exp = state
+            .eventstore
+            .get_client_pause(ip)
+            .await
+            .map_err(ApiError::Internal)?;
+
+        let client_pause_info = Some(ClientPauseInfo {
+            is_paused: client_pause_exp.is_some_and(|exp| exp > Utc::now()),
+            expires_at: client_pause_exp,
+            ip: ip.to_string(),
+        });
+
+        let template = DashboardTemplate {
+            current_ip,
+            events,
+            global_pause: global_pause_info,
+            client_pause: client_pause_info,
+        };
         Ok(Html(
             template
                 .render()

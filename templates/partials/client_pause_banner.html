@@ -1,0 +1,42 @@
+{% if client_pause.is_some() %}
+{% let cp = client_pause.as_ref().unwrap() %}
+{% let safe_ip = cp.ip.replace(".", "-").replace(":", "-") %}
+{% if cp.is_paused %}
+<div id="client-pause-banner-{{ safe_ip }}" class="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+    <div class="flex items-center justify-between">
+        <div>
+            <h3 class="font-semibold text-blue-900 dark:text-blue-100">Client Pause Active</h3>
+            <p class="text-sm text-blue-800 dark:text-blue-200">
+                Blocking is paused for <span class="font-mono">{{ cp.ip }}</span> until
+                <time class="local-time" datetime="{{ cp.expires_at.unwrap().to_rfc3339() }}">
+                    {{ cp.expires_at.unwrap().format("%Y-%m-%d %H:%M:%S UTC") }}
+                </time>
+            </p>
+        </div>
+        <button
+            hx-delete="/pause/clients/{{ cp.ip }}"
+            hx-target="#client-pause-banner-{{ safe_ip }}"
+            hx-swap="outerHTML"
+            class="bg-blue-600 dark:bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition">
+            End Pause
+        </button>
+    </div>
+</div>
+{% else %}
+<div id="client-pause-banner-{{ safe_ip }}" class="mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+    <h3 class="font-semibold text-gray-900 dark:text-gray-100 mb-3">Pause Blocking for <span class="font-mono">{{ cp.ip }}</span></h3>
+    <form hx-post="/pause/clients/{{ cp.ip }}" hx-swap="outerHTML" hx-target="#client-pause-banner-{{ safe_ip }}" class="flex gap-2">
+        <select name="duration_seconds" class="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="3600">1 hour</option>
+            <option value="86400">1 day</option>
+            <option value="604800">7 days</option>
+            <option value="2592000">30 days</option>
+            <option value="252423993600">Permanent</option>
+        </select>
+        <button type="submit" class="bg-yellow-600 dark:bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-700 dark:hover:bg-yellow-600 transition">
+            Pause
+        </button>
+    </form>
+</div>
+{% endif %}
+{% endif %}

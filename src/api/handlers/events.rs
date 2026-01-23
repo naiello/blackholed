@@ -51,6 +51,8 @@ pub async fn list_clients(
         .map(|c| ClientResponse {
             ip: c.ip.to_string(),
             last_seen: c.last_seen,
+            is_paused: None,
+            pause_expires: None,
         })
         .collect();
 

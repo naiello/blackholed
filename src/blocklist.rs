@@ -1,9 +1,23 @@
-use std::{collections::HashMap, io, iter, str::FromStr, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    io, iter,
+    net::IpAddr,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{Stream, StreamExt};
-use tokio::sync::{broadcast, RwLock};
+use futures::{future::join_all, Stream, StreamExt};
+use tokio::{
+    sync::{broadcast, RwLock},
+    time,
+};
 
 use hickory_server::{
     authority::{
@@ -29,7 +43,10 @@ pub struct BlocklistAuthority<BP: BlocklistProvider> {
     min_wildcard_depth: u8,
     blocked_tx: broadcast::Sender<BlockEvent>,
     provider: Arc<BP>,
+    global_pause_active: Arc<AtomicBool>,
+    client_pause_active: Arc<RwLock<HashSet<IpAddr>>>,
     _event_logger: AbortOnDropHandle<()>,
+    _pause_manager: AbortOnDropHandle<()>,
 }
 
 struct BlocklistAuthorityEventLogger<ES: EventStore> {
@@ -52,6 +69,15 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         };
         let event_logger_handle = tokio::spawn(async move { event_logger.run().await });
 
+        let global_pause_active = Arc::new(AtomicBool::new(false));
+        let client_pause_active = Arc::new(RwLock::new(HashSet::new()));
+        let pause_manager = PauseManager {
+            eventstore: eventstore.clone(),
+            global_pause_active: global_pause_active.clone(),
+            client_pause_active: client_pause_active.clone(),
+        };
+        let pause_manager_handle = tokio::spawn(async move { pause_manager.run().await });
+
         let authority = Self {
             origin: origin.into(),
             blocklist: RwLock::new(HashMap::new()),
@@ -59,7 +85,10 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             min_wildcard_depth: config.min_wildcard_depth,
             blocked_tx,
             provider,
+            global_pause_active,
+            client_pause_active,
             _event_logger: AbortOnDropHandle::new(event_logger_handle),
+            _pause_manager: AbortOnDropHandle::new(pause_manager_handle),
         };
 
         authority.reload().await;
@@ -106,7 +135,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         log::info!("Blocklist reload complete");
     }
 
-    pub async fn reload_host(&self, name: &str) -> anyhow::Result<()> {
+    pub async fn reload_host(&self, name: &str) -> Result<()> {
         log::debug!("Reloading single host: {}", name);
 
         let lower_name = LowerName::from_str(name)
@@ -139,6 +168,19 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         Ok(())
     }
 
+    pub fn set_global_pause(&self, is_paused: bool) {
+        self.global_pause_active.store(is_paused, Ordering::Relaxed);
+    }
+
+    pub async fn set_client_pause(&self, client: IpAddr, is_paused: bool) {
+        let mut client_pause_active = self.client_pause_active.write().await;
+        if is_paused {
+            client_pause_active.insert(client);
+        } else {
+            client_pause_active.remove(&client);
+        }
+    }
+
     fn wildcards(&self, host: &Name) -> Vec<LowerName> {
         host.iter()
             .enumerate()
@@ -164,6 +206,11 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         let blocklist = self.blocklist.read().await;
         let disposition = match_list.iter().find_map(|entry| blocklist.get(entry));
         matches!(disposition, Some(HostDisposition::Block))
+    }
+
+    async fn is_paused(&self, client: IpAddr) -> bool {
+        self.global_pause_active.load(Ordering::Relaxed)
+            || self.client_pause_active.read().await.contains(&client)
     }
 }
 
@@ -218,6 +265,8 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
     ) -> LookupControlFlow<Self::Lookup> {
+        use LookupControlFlow::*;
+
         let result = self
             .lookup(
                 request_info.query.name(),
@@ -226,7 +275,7 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
             )
             .await;
 
-        if matches!(result, LookupControlFlow::Break(_)) {
+        if matches!(result, Break(_)) {
             let event = BlockEvent {
                 time: Utc::now(),
                 src: request_info.src,
@@ -234,17 +283,27 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
                 record_type: request_info.query.query_type(),
             };
 
-            log::info!(
-                "Blocked query for {} ({}) from {}",
-                event.name,
-                event.record_type,
-                event.src,
-            );
-
             self.blocked_tx
                 .send(event)
                 .inspect_err(|_| log::warn!("Failed to tx blocked event, no subscribers"))
                 .ok();
+
+            if self.is_paused(request_info.src.ip()).await {
+                log::info!(
+                    "Would have blocked query for {} ({}) from {}",
+                    request_info.query.name(),
+                    request_info.query.query_type(),
+                    request_info.src.ip(),
+                );
+                return Skip;
+            }
+
+            log::info!(
+                "Blocked query for {} ({}) from {}",
+                request_info.query.name(),
+                request_info.query.query_type(),
+                request_info.src.ip(),
+            );
         }
 
         result
@@ -258,6 +317,72 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
         LookupControlFlow::Continue(Err(LookupError::from(io::Error::other(
             "Blocklist cannot serve NSEC records",
         ))))
+    }
+}
+
+struct PauseManager<ES: EventStore> {
+    eventstore: Arc<ES>,
+    global_pause_active: Arc<AtomicBool>,
+    client_pause_active: Arc<RwLock<HashSet<IpAddr>>>,
+}
+
+impl<ES: EventStore> PauseManager<ES> {
+    async fn run(&self) {
+        log::info!("Starting pause manager");
+
+        let mut interval = time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+
+            self.check_global_pause()
+                .await
+                .inspect_err(|err| log::error!("Failed to check global pause: {err}"))
+                .ok();
+
+            self.check_client_pauses()
+                .await
+                .inspect_err(|err| log::error!("Failed to check client pauses: {err}"))
+                .ok();
+        }
+    }
+
+    async fn check_global_pause(&self) -> Result<()> {
+        let now = Utc::now();
+        let is_paused = self
+            .eventstore
+            .get_global_pause()
+            .await
+            .context("Failed to read global pause")?
+            .is_some_and(|ts| ts > now);
+        self.global_pause_active.store(is_paused, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn check_client_pauses(&self) -> Result<()> {
+        let now = Utc::now();
+        let ips = self
+            .eventstore
+            .get_clients()
+            .await
+            .context("Failed to read clients from Redis")?
+            .into_iter()
+            .map(|client| async move {
+                self.eventstore
+                    .get_client_pause(client.ip)
+                    .await
+                    .inspect_err(|err| {
+                        log::error!("Failed to inspect client pause for {}: {}", client.ip, err)
+                    })
+                    .ok()
+                    .flatten()
+                    .filter(|ts| ts > &now)
+                    .map(|_| client.ip)
+            });
+
+        let paused_ips: HashSet<_> = join_all(ips).await.into_iter().flatten().collect();
+        *self.client_pause_active.write().await = paused_ips;
+
+        Ok(())
     }
 }
 

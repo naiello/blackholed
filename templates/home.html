@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 mb-6">
         <h1 class="text-4xl font-bold dark:text-gray-100 mb-6">Blackhole DNS</h1>
 
         <div class="prose dark:prose-invert mb-8">
@@ -18,7 +18,7 @@
             </p>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
             <a
                 href="/events"
                 class="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg transition text-center"
@@ -32,6 +32,8 @@
                 View active clients
             </a>
         </div>
+
+        {% include "partials/global_pause_banner.html" %}
     </div>
 </div>
 {% endblock %}

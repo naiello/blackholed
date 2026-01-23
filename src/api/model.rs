@@ -40,6 +40,10 @@ pub struct HostResponse {
 pub struct ClientResponse {
     pub ip: String,
     pub last_seen: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_paused: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_expires: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -76,4 +80,20 @@ pub fn decode_next_token(token: &str) -> Option<usize> {
         .ok()?;
     let offset_str = String::from_utf8(decoded).ok()?;
     offset_str.parse().ok()
+}
+
+#[derive(Deserialize)]
+pub struct StartPauseRequest {
+    pub duration_seconds: i64,
+}
+
+#[derive(Serialize)]
+pub struct PauseStatusResponse {
+    pub is_paused: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+pub struct MessageResponse {
+    pub message: String,
 }

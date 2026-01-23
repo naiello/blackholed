@@ -23,7 +23,7 @@ use crate::{
     model::{HostDisposition, SourceHost},
     ui::{
         handlers::helpers::{extract_client_ip, is_htmx_request},
-        templates::{DashboardTemplate, EventListPartial},
+        templates::{ClientPauseInfo, DashboardTemplate, EventListPartial, GlobalPauseInfo},
     },
 };
 use sqlx::Sqlite;
@@ -63,7 +63,7 @@ pub async fn dashboard(
         .eventstore
         .get_block_events_for_client_paginated(client_ip, PAGE_SIZE + 1, offset)
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Determine if there are more results
     let next_token = if events.len() > PAGE_SIZE {
@@ -97,7 +97,37 @@ pub async fn dashboard(
         )
         .into_response())
     } else {
-        let template = DashboardTemplate { current_ip, events };
+        // Fetch global pause status
+        let global_pause = state
+            .eventstore
+            .get_global_pause()
+            .await
+            .map_err(ApiError::Internal)?;
+
+        let global_pause_info = GlobalPauseInfo {
+            is_paused: global_pause.is_some_and(|exp| exp > Utc::now()),
+            expires_at: global_pause,
+        };
+
+        // Fetch client-specific pause status
+        let client_pause_exp = state
+            .eventstore
+            .get_client_pause(client_ip)
+            .await
+            .map_err(ApiError::Internal)?;
+
+        let client_pause_info = Some(ClientPauseInfo {
+            is_paused: client_pause_exp.is_some_and(|exp| exp > Utc::now()),
+            expires_at: client_pause_exp,
+            ip: client_ip.to_string(),
+        });
+
+        let template = DashboardTemplate {
+            current_ip,
+            events,
+            global_pause: global_pause_info,
+            client_pause: client_pause_info,
+        };
         Ok(Html(
             template
                 .render()
@@ -133,11 +163,14 @@ pub async fn allowlist_domain(
         .db
         .put_hosts(vec![host])
         .await
-        .map_err(|e| ApiError::Internal(e))?;
+        .map_err(ApiError::Internal)?;
 
     // Reload blocklist
-    state.blocklist.reload_host(&normalized).await
-        .map_err(|e| ApiError::Internal(e))?;
+    state
+        .blocklist
+        .reload_host(&normalized)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Return success message (will replace the event row)
     let html = format!(

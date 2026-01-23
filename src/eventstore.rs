@@ -25,6 +25,12 @@ pub trait EventStore {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<EventStoreBlockedEvent>>;
+    async fn get_global_pause(&self) -> Result<Option<DateTime<Utc>>>;
+    async fn get_client_pause(&self, ip: IpAddr) -> Result<Option<DateTime<Utc>>>;
+    async fn put_global_pause(&self, expires: DateTime<Utc>) -> Result<()>;
+    async fn put_client_pause(&self, ip: IpAddr, expires: DateTime<Utc>) -> Result<()>;
+    async fn delete_global_pause(&self) -> Result<()>;
+    async fn delete_client_pause(&self, ip: IpAddr) -> Result<()>;
 }
 
 pub struct RedisEventStore {
@@ -202,6 +208,63 @@ impl EventStore for RedisEventStoreConnection {
 
         Ok(events)
     }
+
+    async fn put_global_pause(&self, expires: DateTime<Utc>) -> Result<()> {
+        let mut conn = self.redis.clone();
+        conn.set::<_, _, ()>("pause#global", expires.timestamp())
+            .await
+            .context("Failed to write global pause to Redis")
+    }
+
+    async fn get_global_pause(&self) -> Result<Option<DateTime<Utc>>> {
+        let mut conn = self.redis.clone();
+        let ts = conn
+            .get::<_, Option<i64>>("pause#global")
+            .await
+            .context("Failed to get client pause from Redis")?
+            .and_then(|ts| DateTime::from_timestamp(ts, 0));
+
+        Ok(ts)
+    }
+
+    async fn delete_global_pause(&self) -> Result<()> {
+        let mut conn = self.redis.clone();
+        conn.del::<_, ()>("pause#global")
+            .await
+            .context("Failed to delete global pause from Redis")
+    }
+
+    async fn put_client_pause(&self, client: IpAddr, expires: DateTime<Utc>) -> Result<()> {
+        let mut conn = self.redis.clone();
+        let key = format!("pause#{client}");
+        conn.set::<_, _, ()>(&key, expires.timestamp())
+            .await
+            .context("Failed to write global pause to Redis")?;
+
+        conn.expire_at::<_, ()>(&key, expires.timestamp())
+            .await
+            .context("Failed to set client pause TTL")
+    }
+
+    async fn get_client_pause(&self, client: IpAddr) -> Result<Option<DateTime<Utc>>> {
+        let mut conn = self.redis.clone();
+        let key = format!("pause#{client}");
+        let ts = conn
+            .get::<_, Option<i64>>(key)
+            .await
+            .context("Failed to get client pause from Redis")?
+            .and_then(|ts| DateTime::from_timestamp(ts, 0));
+
+        Ok(ts)
+    }
+
+    async fn delete_client_pause(&self, client: IpAddr) -> Result<()> {
+        let mut conn = self.redis.clone();
+        let key = format!("pause#{client}");
+        conn.del::<_, ()>(key)
+            .await
+            .context("Failed to delete global pause from Redis")
+    }
 }
 
 #[async_trait]
@@ -235,6 +298,30 @@ impl EventStore for RedisEventStore {
         self.conn
             .get_block_events_for_client_paginated(ip, limit, offset)
             .await
+    }
+
+    async fn put_global_pause(&self, expires: DateTime<Utc>) -> Result<()> {
+        self.conn.put_global_pause(expires).await
+    }
+
+    async fn get_global_pause(&self) -> Result<Option<DateTime<Utc>>> {
+        self.conn.get_global_pause().await
+    }
+
+    async fn delete_global_pause(&self) -> Result<()> {
+        self.conn.delete_global_pause().await
+    }
+
+    async fn put_client_pause(&self, client: IpAddr, expires: DateTime<Utc>) -> Result<()> {
+        self.conn.put_client_pause(client, expires).await
+    }
+
+    async fn get_client_pause(&self, client: IpAddr) -> Result<Option<DateTime<Utc>>> {
+        self.conn.get_client_pause(client).await
+    }
+
+    async fn delete_client_pause(&self, client: IpAddr) -> Result<()> {
+        self.conn.delete_client_pause(client).await
     }
 }
 

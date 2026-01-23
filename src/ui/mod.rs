@@ -6,9 +6,7 @@ use axum::{
     Router,
 };
 
-use crate::{
-    api::state::ApiState, db::SqlDb, eventstore::RedisEventStore,
-};
+use crate::{api::state::ApiState, db::SqlDb, eventstore::RedisEventStore};
 use sqlx::Sqlite;
 
 type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
@@ -29,10 +27,7 @@ pub fn create_router(state: ConcreteState) -> Router {
             "/sources/:id/reload",
             post(handlers::sources::reload_source),
         )
-        .route(
-            "/sources/:id/hosts",
-            post(handlers::sources::add_host),
-        )
+        .route("/sources/:id/hosts", post(handlers::sources::add_host))
         .route(
             "/sources/:id/hosts/:name",
             delete(handlers::sources::delete_host),
@@ -40,6 +35,19 @@ pub fn create_router(state: ConcreteState) -> Router {
         .route(
             "/sources/:id/delete",
             post(handlers::sources::delete_source),
+        )
+        .route("/pause/global", post(handlers::pauses::start_global_pause))
+        .route(
+            "/pause/global",
+            delete(handlers::pauses::stop_global_pause),
+        )
+        .route(
+            "/pause/clients/:ip",
+            post(handlers::pauses::start_client_pause),
+        )
+        .route(
+            "/pause/clients/:ip",
+            delete(handlers::pauses::stop_client_pause),
         )
         .with_state(state)
 }

@@ -58,10 +58,21 @@ pub async fn start<BP: BlocklistProvider + Send + Sync + 'static>(
             None,  // root_dir
             &file_config,
         )
-        .map_err(|err| anyhow!("Failed to load zone {} from {:?}: {}", zone_config.name, zone_config.file, err))?;
+        .map_err(|err| {
+            anyhow!(
+                "Failed to load zone {} from {:?}: {}",
+                zone_config.name,
+                zone_config.file,
+                err
+            )
+        })?;
 
         catalog.upsert(zone_name.into(), vec![Arc::new(authority)]);
-        log::info!("Loaded zone {} from {:?}", zone_config.name, zone_config.file);
+        log::info!(
+            "Loaded zone {} from {:?}",
+            zone_config.name,
+            zone_config.file
+        );
     }
 
     catalog.upsert(Name::root().into(), vec![blocklist, Arc::new(upstream)]);

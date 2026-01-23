@@ -124,7 +124,10 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         let refresh_time = Utc::now();
         match self.refresh(source.clone(), refresh_time).await {
             Ok(_) => {
-                log::info!("Successfully completed manual reload for source: {}", source_id);
+                log::info!(
+                    "Successfully completed manual reload for source: {}",
+                    source_id
+                );
                 self.blocklist_authority.reload().await;
                 Ok(())
             }

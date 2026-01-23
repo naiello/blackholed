@@ -12,6 +12,7 @@
         }
     </script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
     <script>
         // Dark mode initialization - runs immediately to prevent flash
         (function() {
@@ -120,6 +121,57 @@
             updateIcon();
         });
 
+        // Format past timestamps (e.g., "2 hours ago")
+        function formatPastTime(diffSec) {
+            if (diffSec < 10) {
+                return 'just now';
+            } else if (diffSec < 60) {
+                return `${diffSec} seconds ago`;
+            } else if (diffSec < 3600) {
+                const minutes = Math.floor(diffSec / 60);
+                return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+            } else if (diffSec < 86400) {
+                const hours = Math.floor(diffSec / 3600);
+                return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+            } else if (diffSec < 2592000) {
+                const days = Math.floor(diffSec / 86400);
+                return days === 1 ? '1 day ago' : `${days} days ago`;
+            } else if (diffSec < 31536000) {
+                const months = Math.floor(diffSec / 2592000);
+                return months === 1 ? '1 month ago' : `${months} months ago`;
+            } else {
+                const years = Math.floor(diffSec / 31536000);
+                return years === 1 ? '1 year ago' : `${years} years ago`;
+            }
+        }
+
+        // Format future timestamps (e.g., "in 2 hours")
+        function formatFutureTime(diffSec) {
+            // Check for >1000 years in the future (indefinite)
+            if (diffSec > 31536000000) {
+                return 'indefinitely';
+            } else if (diffSec < 10) {
+                return 'a few seconds from now';
+            } else if (diffSec < 60) {
+                return `${diffSec} seconds from now`;
+            } else if (diffSec < 3600) {
+                const minutes = Math.floor(diffSec / 60);
+                return minutes === 1 ? '1 minute from now' : `${minutes} minutes from now`;
+            } else if (diffSec < 86400) {
+                const hours = Math.floor(diffSec / 3600);
+                return hours === 1 ? '1 hour from now' : `${hours} hours from now`;
+            } else if (diffSec < 2592000) {
+                const days = Math.floor(diffSec / 86400);
+                return days === 1 ? '1 day from now' : `${days} days from now`;
+            } else if (diffSec < 31536000) {
+                const months = Math.floor(diffSec / 2592000);
+                return months === 1 ? '1 month from now' : `${months} months from now`;
+            } else {
+                const years = Math.floor(diffSec / 31536000);
+                return years === 1 ? '1 year from now' : `${years} years from now`;
+            }
+        }
+
         // Convert UTC timestamps to relative time format
         function convertTimestampsToLocal() {
             const timeElements = document.querySelectorAll('time.local-time');
@@ -128,8 +180,8 @@
                 if (utcTime) {
                     const date = new Date(utcTime);
                     const now = new Date();
-                    const diffMs = now - date;
-                    const diffSec = Math.floor(diffMs / 1000);
+                    const diffMs = date - now;
+                    const diffSec = Math.floor(Math.abs(diffMs) / 1000);
 
                     // Format exact date for title attribute
                     const year = date.getFullYear();
@@ -143,31 +195,20 @@
                         .find(part => part.type === 'timeZoneName')?.value || '';
                     const exactDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${timezone}`;
 
-                    // Calculate relative time
+                    // Calculate relative time based on whether it's past or future
                     let relativeTime;
-                    if (diffSec < 10) {
-                        relativeTime = 'just now';
-                    } else if (diffSec < 60) {
-                        relativeTime = `${diffSec} seconds ago`;
-                    } else if (diffSec < 3600) {
-                        const minutes = Math.floor(diffSec / 60);
-                        relativeTime = minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
-                    } else if (diffSec < 86400) {
-                        const hours = Math.floor(diffSec / 3600);
-                        relativeTime = hours === 1 ? '1 hour ago' : `${hours} hours ago`;
-                    } else if (diffSec < 2592000) {
-                        const days = Math.floor(diffSec / 86400);
-                        relativeTime = days === 1 ? '1 day ago' : `${days} days ago`;
-                    } else if (diffSec < 31536000) {
-                        const months = Math.floor(diffSec / 2592000);
-                        relativeTime = months === 1 ? '1 month ago' : `${months} months ago`;
+                    if (diffMs < 0) {
+                        // Past time
+                        relativeTime = formatPastTime(diffSec);
                     } else {
-                        const years = Math.floor(diffSec / 31536000);
-                        relativeTime = years === 1 ? '1 year ago' : `${years} years ago`;
+                        // Future time
+                        relativeTime = formatFutureTime(diffSec);
                     }
 
                     element.textContent = relativeTime;
-                    element.setAttribute('title', exactDate);
+                    if (relativeTime !== 'indefinitely') {
+                        element.setAttribute('title', exactDate);
+                    }
                 }
             });
         }
