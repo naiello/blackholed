@@ -1,0 +1,36 @@
+{% for event in events.items %}
+<tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+    <td class="px-6 py-4 whitespace-nowrap">
+        <span class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ event.domain }}</span>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+        <time class="local-time" datetime="{{ event.time.to_rfc3339() }}">{{ event.time.format("%Y-%m-%d %H:%M:%S UTC") }}</time>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+        <button
+            hx-post="/allowlist"
+            hx-vals='{"domain": "{{ event.domain }}"}'
+            hx-target="closest tr"
+            hx-swap="outerHTML"
+            hx-confirm="Allow {{ event.domain }} permanently?"
+            class="bg-green-600 dark:bg-green-500 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 dark:hover:bg-green-600 transition"
+        >
+            Allowlist
+        </button>
+    </td>
+</tr>
+{% endfor %}
+{% if events.next_token.is_some() %}
+<tr id="load-more-row">
+    <td colspan="3" class="px-6 py-4 text-center">
+        <button
+            hx-get="/clients/{{ current_ip }}?next_token={{ events.next_token.as_ref().unwrap() }}"
+            hx-target="#load-more-row"
+            hx-swap="outerHTML"
+            class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+        >
+            Load More
+        </button>
+    </td>
+</tr>
+{% endif %}

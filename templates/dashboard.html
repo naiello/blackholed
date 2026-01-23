@@ -5,18 +5,20 @@
 {% block content %}
 <div class="max-w-6xl mx-auto">
     {% include "partials/global_pause_banner.html" %}
-    {% include "partials/client_pause_banner.html" %}
 
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
         <h1 class="text-2xl font-bold dark:text-gray-100 mb-4">Blocked Domains</h1>
 
-        <form method="get" class="mb-6">
+        {% include "partials/client_pause_banner.html" %}
+
+        <form id="ip-form" class="mb-6">
             <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-200">
                 Recently blocked domains for IP:
             </label>
             <div class="flex gap-2">
                 <input
                     type="text"
+                    id="ip-input"
                     name="ip"
                     value="{{ current_ip }}"
                     placeholder="Enter IP address"
@@ -30,6 +32,15 @@
                 </button>
             </div>
         </form>
+        <script>
+            document.getElementById('ip-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const ip = document.getElementById('ip-input').value.trim();
+                if (ip) {
+                    window.location.href = '/clients/' + encodeURIComponent(ip);
+                }
+            });
+        </script>
 
         <div id="events-list">
             {% include "partials/event_list.html" %}

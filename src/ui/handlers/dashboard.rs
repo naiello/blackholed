@@ -23,7 +23,9 @@ use crate::{
     model::{HostDisposition, SourceHost},
     ui::{
         handlers::helpers::{extract_client_ip, is_htmx_request},
-        templates::{ClientPauseInfo, DashboardTemplate, EventListPartial, GlobalPauseInfo},
+        templates::{
+            ClientPauseInfo, DashboardTemplate, EventRowsPaginated, GlobalPauseInfo,
+        },
     },
 };
 use sqlx::Sqlite;
@@ -89,7 +91,7 @@ pub async fn dashboard(
 
     // Return partial or full page based on HTMX
     if is_htmx_request(&headers) {
-        let template = EventListPartial { current_ip, events };
+        let template = EventRowsPaginated { current_ip, events };
         Ok(Html(
             template
                 .render()

@@ -14,9 +14,7 @@ type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 pub fn create_router(state: ConcreteState) -> Router {
     Router::new()
         .route("/", get(handlers::home::home))
-        .route("/events", get(handlers::events::events_default))
-        .route("/events/:ip", get(handlers::events::events_by_ip))
-        .route("/allowlist", post(handlers::events::allowlist_domain))
+        .route("/allowlist", post(handlers::clients::allowlist_domain))
         .route("/clients", get(handlers::clients::list_clients))
         .route("/clients/:ip", get(handlers::clients::client_detail))
         .route("/sources", get(handlers::sources::list_sources))

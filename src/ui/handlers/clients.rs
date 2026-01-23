@@ -1,9 +1,9 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use anyhow;
 use askama::Template;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Form, Path, Query, State},
     http::HeaderMap,
     response::{Html, IntoResponse, Response},
 };
@@ -17,13 +17,15 @@ use crate::{
             encode_next_token, BlockEventResponse, ClientResponse, PaginatedResponse, PAGE_SIZE,
         },
         state::ApiState,
+        validation::validate_and_normalize_domain,
     },
-    db::SqlDb,
+    db::{Db, SqlDb},
     eventstore::{EventStore, RedisEventStore},
+    model::{HostDisposition, SourceHost},
     ui::{
-        handlers::helpers::is_htmx_request,
+        handlers::helpers::{extract_client_ip, is_htmx_request},
         templates::{
-            ClientListTemplate, ClientPauseInfo, DashboardTemplate, EventListPartial,
+            ClientListTemplate, ClientPauseInfo, DashboardTemplate, EventRowsPaginated,
             GlobalPauseInfo,
         },
     },
@@ -123,14 +125,19 @@ pub struct ClientDetailQuery {
 
 pub async fn client_detail(
     State(state): State<ConcreteState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path(ip_str): Path<String>,
     headers: HeaderMap,
     Query(query): Query<ClientDetailQuery>,
 ) -> Result<Response, ApiError> {
-    // Parse IP address
-    let ip = ip_str
-        .parse::<IpAddr>()
-        .map_err(|_| ApiError::BadRequest("Invalid IP address".into()))?;
+    // Parse IP address, or use client IP if "self"
+    let ip = if ip_str == "self" {
+        extract_client_ip(ConnectInfo(addr), &headers)
+    } else {
+        ip_str
+            .parse::<IpAddr>()
+            .map_err(|_| ApiError::BadRequest("Invalid IP address".into()))?
+    };
 
     // Decode pagination token
     let offset = query
@@ -166,11 +173,11 @@ pub async fn client_detail(
         next_token,
     };
 
-    let current_ip = ip_str;
+    let current_ip = ip.to_string();
 
     // Return partial or full page based on HTMX
     if is_htmx_request(&headers) {
-        let template = EventListPartial { current_ip, events };
+        let template = EventRowsPaginated { current_ip, events };
         Ok(Html(
             template
                 .render()
@@ -216,4 +223,52 @@ pub async fn client_detail(
         )
         .into_response())
     }
+}
+
+#[derive(Deserialize)]
+pub struct AllowlistRequest {
+    pub domain: String,
+}
+
+pub async fn allowlist_domain(
+    State(state): State<ConcreteState>,
+    Form(req): Form<AllowlistRequest>,
+) -> Result<Html<String>, ApiError> {
+    // Validate and normalize domain
+    let normalized = validate_and_normalize_domain(&req.domain)?;
+
+    // Add to webmanaged source
+    let now = Utc::now();
+    let host = SourceHost {
+        name: normalized.clone(),
+        source_id: "webmanaged".to_string(),
+        disposition: HostDisposition::Allow,
+        created_at: now,
+        updated_at: now,
+    };
+
+    state
+        .db
+        .put_hosts(vec![host])
+        .await
+        .map_err(ApiError::Internal)?;
+
+    // Reload blocklist
+    state
+        .blocklist
+        .reload_host(&normalized)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    // Return success message (will replace the event row)
+    let html = format!(
+        r#"<div class="p-4 border border-green-200 dark:border-green-800 rounded bg-green-50 dark:bg-green-900/20">
+            <p class="text-green-800 dark:text-green-200">
+                <strong class="font-mono">{}</strong> has been allowlisted permanently
+            </p>
+        </div>"#,
+        normalized
+    );
+
+    Ok(Html(html))
 }

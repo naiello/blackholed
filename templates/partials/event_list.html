@@ -16,7 +16,7 @@
                 </th>
             </tr>
         </thead>
-        <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+        <tbody id="event-rows" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {% for event in events.items %}
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -39,20 +39,21 @@
                 </td>
             </tr>
             {% endfor %}
+            {% if events.next_token.is_some() %}
+            <tr id="load-more-row">
+                <td colspan="3" class="px-6 py-4 text-center">
+                    <button
+                        hx-get="/clients/{{ current_ip }}?next_token={{ events.next_token.as_ref().unwrap() }}"
+                        hx-target="#load-more-row"
+                        hx-swap="outerHTML"
+                        class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+                    >
+                        Load More
+                    </button>
+                </td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
 </div>
-
-{% if events.next_token.is_some() %}
-<div class="mt-4 text-center">
-    <button
-        hx-get="/?ip={{ current_ip }}&next_token={{ events.next_token.as_ref().unwrap() }}"
-        hx-target="#events-list"
-        hx-swap="innerHTML"
-        class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
-    >
-        Load More
-    </button>
-</div>
-{% endif %}
 {% endif %}

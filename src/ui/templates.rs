@@ -23,14 +23,6 @@ pub struct HomeTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "events.html")]
-pub struct EventsTemplate {
-    pub current_ip: String,
-    pub events: PaginatedResponse<BlockEventResponse>,
-    pub global_pause: GlobalPauseInfo,
-}
-
-#[derive(Template)]
 #[template(path = "dashboard.html")]
 pub struct DashboardTemplate {
     pub current_ip: String,
@@ -42,6 +34,13 @@ pub struct DashboardTemplate {
 #[derive(Template)]
 #[template(path = "partials/event_list.html")]
 pub struct EventListPartial {
+    pub current_ip: String,
+    pub events: PaginatedResponse<BlockEventResponse>,
+}
+
+#[derive(Template)]
+#[template(path = "partials/event_rows_paginated.html")]
+pub struct EventRowsPaginated {
     pub current_ip: String,
     pub events: PaginatedResponse<BlockEventResponse>,
 }
