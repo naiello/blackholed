@@ -41,8 +41,12 @@ pub struct ClientsQuery {
 
 pub async fn list_clients(
     State(state): State<ConcreteState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(query): Query<ClientsQuery>,
 ) -> Result<Response, ApiError> {
+    // Get the current user's IP
+    let current_ip = extract_client_ip(ConnectInfo(addr), &headers);
     // Decode pagination token
     let offset = query
         .next_token
@@ -109,6 +113,7 @@ pub async fn list_clients(
     let template = ClientListTemplate {
         clients,
         global_pause: global_pause_info,
+        current_ip: current_ip.to_string(),
     };
     Ok(Html(
         template

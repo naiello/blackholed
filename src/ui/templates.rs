@@ -50,6 +50,7 @@ pub struct EventRowsPaginated {
 pub struct ClientListTemplate {
     pub clients: PaginatedResponse<ClientResponse>,
     pub global_pause: GlobalPauseInfo,
+    pub current_ip: String,
 }
 
 #[derive(Template)]
