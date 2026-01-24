@@ -148,7 +148,7 @@ pub async fn start_client_pause(
     state.blocklist.set_client_pause(ip_addr, true).await;
 
     // Return the active pause banner HTML
-    let safe_ip = ip.replace('.', "-").replace(':', "-");
+    let safe_ip = ip.replace(['.', ':'], "-");
     let html = format!(
         "<div id=\"client-pause-banner-{}\" class=\"mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg\"> \
     <div class=\"flex items-center justify-between\"> \
@@ -200,7 +200,7 @@ pub async fn stop_client_pause(
     state.blocklist.set_client_pause(ip_addr, false).await;
 
     // Return the pause control HTML
-    let safe_ip = ip.replace('.', "-").replace(':', "-");
+    let safe_ip = ip.replace(['.', ':'], "-");
     let html = format!(
         "<div id=\"client-pause-banner-{}\" class=\"mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg\"> \
     <h3 class=\"font-semibold text-gray-900 dark:text-gray-100 mb-3\">Pause Blocking for <span class=\"font-mono\">{}</span></h3> \

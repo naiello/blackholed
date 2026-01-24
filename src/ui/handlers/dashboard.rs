@@ -23,9 +23,7 @@ use crate::{
     model::{HostDisposition, SourceHost},
     ui::{
         handlers::helpers::{extract_client_ip, is_htmx_request},
-        templates::{
-            ClientPauseInfo, DashboardTemplate, EventRowsPaginated, GlobalPauseInfo,
-        },
+        templates::{ClientPauseInfo, DashboardTemplate, EventRowsPaginated, GlobalPauseInfo},
     },
 };
 use sqlx::Sqlite;

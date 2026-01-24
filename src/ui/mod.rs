@@ -35,10 +35,7 @@ pub fn create_router(state: ConcreteState) -> Router {
             post(handlers::sources::delete_source),
         )
         .route("/pause/global", post(handlers::pauses::start_global_pause))
-        .route(
-            "/pause/global",
-            delete(handlers::pauses::stop_global_pause),
-        )
+        .route("/pause/global", delete(handlers::pauses::stop_global_pause))
         .route(
             "/pause/clients/:ip",
             post(handlers::pauses::start_client_pause),
