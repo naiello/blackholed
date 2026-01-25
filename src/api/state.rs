@@ -4,7 +4,7 @@ use crate::{
     blocklist::{BlocklistAuthority, BlocklistProvider},
     db::Db,
     eventstore::EventStore,
-    sourceloader::SourceLoaderHandle,
+    sourceloader::SourceLoader,
     types::Shared,
 };
 
@@ -18,7 +18,7 @@ where
     pub db: Arc<DB>,
     pub blocklist: Arc<BlocklistAuthority<BP>>,
     pub eventstore: Arc<ES>,
-    pub sourceloader: Arc<SourceLoaderHandle>,
+    pub sourceloader: Arc<SourceLoader>,
 }
 
 impl<DB, BP, ES> Clone for ApiState<DB, BP, ES>
@@ -47,7 +47,7 @@ where
         db: Arc<DB>,
         blocklist: Arc<BlocklistAuthority<BP>>,
         eventstore: Arc<ES>,
-        sourceloader: Arc<SourceLoaderHandle>,
+        sourceloader: Arc<SourceLoader>,
     ) -> Self {
         Self {
             db,

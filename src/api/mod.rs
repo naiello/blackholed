@@ -19,7 +19,7 @@ use crate::{
     config::ApiConfig,
     db::Db,
     eventstore::EventStore,
-    sourceloader::SourceLoaderHandle,
+    sourceloader::SourceLoader,
     types::Shared,
 };
 use state::ApiState;
@@ -34,7 +34,7 @@ impl Api {
         db: Arc<DB>,
         blocklist: Arc<BlocklistAuthority<BP>>,
         eventstore: Arc<ES>,
-        sourceloader: Arc<SourceLoaderHandle>,
+        sourceloader: Arc<SourceLoader>,
     ) -> Result<Self>
     where
         DB: Db + Shared,

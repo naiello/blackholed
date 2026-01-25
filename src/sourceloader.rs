@@ -18,19 +18,7 @@ use crate::{
 
 pub struct SourceLoader {
     _task: AbortOnDropHandle<()>,
-}
-
-pub struct SourceLoaderHandle {
     reload_tx: mpsc::Sender<String>,
-}
-
-impl SourceLoaderHandle {
-    pub async fn reload_source(&self, source_id: String) -> Result<()> {
-        self.reload_tx
-            .send(source_id)
-            .await
-            .context("Failed to send reload request")
-    }
 }
 
 struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
@@ -50,7 +38,7 @@ impl SourceLoader {
         stale_age: TimeDelta,
         db: Arc<DB>,
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
-    ) -> Result<(Self, SourceLoaderHandle)> {
+    ) -> Result<Self> {
         let (reload_tx, reload_rx) = mpsc::channel(32);
 
         let task = SourceLoaderTask {
@@ -61,12 +49,17 @@ impl SourceLoader {
             reload_rx,
         };
         let handle = tokio::spawn(async move { task.run().await });
-        Ok((
-            SourceLoader {
-                _task: AbortOnDropHandle::new(handle),
-            },
-            SourceLoaderHandle { reload_tx },
-        ))
+        Ok(SourceLoader {
+            _task: AbortOnDropHandle::new(handle),
+            reload_tx,
+        })
+    }
+
+    pub async fn reload_source(&self, source_id: String) -> Result<()> {
+        self.reload_tx
+            .send(source_id)
+            .await
+            .context("Failed to send reload request")
     }
 }
 

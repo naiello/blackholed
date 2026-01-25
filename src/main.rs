@@ -68,14 +68,16 @@ async fn main() -> Result<()> {
             .context("Failed to create webmanaged source")?;
     }
 
-    let (_loader, loader_handle) = SourceLoader::new(
-        config.sourceloader.run_interval(),
-        config.sourceloader.stale_age(),
-        db.clone(),
-        blocklist.clone(),
-    )
-    .await
-    .context("Failed to start SourceLoader")?;
+    let sourceloader = Arc::new(
+        SourceLoader::new(
+            config.sourceloader.run_interval(),
+            config.sourceloader.stale_age(),
+            db.clone(),
+            blocklist.clone(),
+        )
+        .await
+        .context("Failed to start SourceLoader")?,
+    );
 
     // Create API state and spawn server
     let _api = Api::new(
@@ -83,7 +85,7 @@ async fn main() -> Result<()> {
         db.clone(),
         blocklist.clone(),
         eventstore.clone(),
-        Arc::new(loader_handle),
+        sourceloader,
     );
 
     // Start DNS resolver
