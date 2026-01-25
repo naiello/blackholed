@@ -18,17 +18,16 @@ use crate::{
         state::ApiState,
         validation::validate_and_normalize_domain,
     },
-    db::{Db, SqlDb},
-    eventstore::{EventStore, RedisEventStore},
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
     model::{HostDisposition, SourceHost},
+    types::Shared,
     ui::{
         handlers::helpers::{extract_client_ip, is_htmx_request},
         templates::{ClientPauseInfo, DashboardTemplate, EventRowsPaginated, GlobalPauseInfo},
     },
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 #[derive(Deserialize)]
 pub struct DashboardQuery {
@@ -36,12 +35,17 @@ pub struct DashboardQuery {
     pub next_token: Option<String>,
 }
 
-pub async fn dashboard(
-    State(state): State<ConcreteState>,
+pub async fn dashboard<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<DashboardQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Determine which IP to show events for
     let client_ip = if let Some(ip_str) = query.ip {
         ip_str
@@ -142,10 +146,15 @@ pub struct AllowlistRequest {
     pub domain: String,
 }
 
-pub async fn allowlist_domain(
-    State(state): State<ConcreteState>,
+pub async fn allowlist_domain<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Form(req): Form<AllowlistRequest>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Html<String>, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Validate and normalize domain
     let normalized = validate_and_normalize_domain(&req.domain)?;
 

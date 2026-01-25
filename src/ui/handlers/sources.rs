@@ -16,24 +16,28 @@ use crate::{
         state::ApiState,
         validation::{validate_and_normalize_domain, validate_source_id},
     },
-    db::{Db, SqlDb},
-    eventstore::RedisEventStore,
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
     model::{HostDisposition, Source, SourceHost},
+    types::Shared,
     ui::templates::{NewSourceTemplate, SourceDetailTemplate, SourceListTemplate},
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 #[derive(Deserialize)]
 pub struct SourcesQuery {
     pub next_token: Option<String>,
 }
 
-pub async fn list_sources(
-    State(state): State<ConcreteState>,
+pub async fn list_sources<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Query(query): Query<SourcesQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Decode pagination token
     let offset = query
         .next_token
@@ -99,10 +103,15 @@ pub struct CreateSourceForm {
     pub path: Option<String>,
 }
 
-pub async fn create_source(
-    State(state): State<ConcreteState>,
+pub async fn create_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Form(form): Form<CreateSourceForm>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Validate source ID
     validate_source_id(&form.id)?;
 
@@ -154,11 +163,16 @@ pub struct SourceDetailQuery {
     pub next_token: Option<String>,
 }
 
-pub async fn source_detail(
-    State(state): State<ConcreteState>,
+pub async fn source_detail<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
     Query(query): Query<SourceDetailQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Fetch source
     let source = state
         .db
@@ -236,11 +250,16 @@ pub struct AddHostForm {
     pub disposition: String,
 }
 
-pub async fn add_host(
-    State(state): State<ConcreteState>,
+pub async fn add_host<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(source_id): Path<String>,
     Form(form): Form<AddHostForm>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists and is manually-managed
     let source = state
         .db
@@ -290,10 +309,15 @@ pub async fn add_host(
     Ok(Redirect::to(&format!("/sources/{}", source_id)).into_response())
 }
 
-pub async fn delete_host(
-    State(state): State<ConcreteState>,
+pub async fn delete_host<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path((source_id, name)): Path<(String, String)>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists and is manually-managed
     let source = state
         .db
@@ -325,10 +349,15 @@ pub async fn delete_host(
     Ok((StatusCode::OK, Html("".to_string())).into_response())
 }
 
-pub async fn delete_source(
-    State(state): State<ConcreteState>,
+pub async fn delete_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Delete source
     state
         .db
@@ -343,10 +372,15 @@ pub async fn delete_source(
     Ok(Redirect::to("/sources").into_response())
 }
 
-pub async fn reload_source(
-    State(state): State<ConcreteState>,
+pub async fn reload_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists
     let source = state
         .db

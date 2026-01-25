@@ -8,15 +8,21 @@ use chrono::Utc;
 
 use crate::{
     api::{error::ApiError, state::ApiState},
-    db::SqlDb,
-    eventstore::{EventStore, RedisEventStore},
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
+    types::Shared,
     ui::templates::{GlobalPauseInfo, HomeTemplate},
 };
-use sqlx::Sqlite;
 
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
-
-pub async fn home(State(state): State<ConcreteState>) -> Result<Response, ApiError> {
+pub async fn home<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Fetch global pause status
     let global_pause = state
         .eventstore

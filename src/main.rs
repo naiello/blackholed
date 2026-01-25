@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
 use blackholed::{
-    api::{self, state::ApiState},
+    api::Api,
     blocklist::BlocklistAuthority,
     config::Config,
     db::{Db, SqlDb},
@@ -78,19 +78,13 @@ async fn main() -> Result<()> {
     .context("Failed to start SourceLoader")?;
 
     // Create API state and spawn server
-    let api_state = ApiState::new(
+    let _api = Api::new(
+        config.api,
         db.clone(),
         blocklist.clone(),
         eventstore.clone(),
         Arc::new(loader_handle),
     );
-
-    let api_port = config.api.port;
-    let api_handle = tokio::spawn(async move {
-        if let Err(e) = api::start_server(api_port, api_state).await {
-            log::error!("API server error: {}", e);
-        }
-    });
 
     // Start DNS resolver
     let mut dns_server = resolver::start(
@@ -103,13 +97,7 @@ async fn main() -> Result<()> {
     .await
     .context("Failed to start server")?;
 
-    // Wait for both servers
-    tokio::select! {
-        result = dns_server.block_until_done() => {
-            result.context("DNS server exited with an error")
-        }
-        _ = api_handle => {
-            anyhow::bail!("API server exited unexpectedly")
-        }
-    }
+    dns_server.block_until_done().await?;
+
+    Ok(())
 }

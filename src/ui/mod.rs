@@ -6,12 +6,20 @@ use axum::{
     Router,
 };
 
-use crate::{api::state::ApiState, db::SqlDb, eventstore::RedisEventStore};
-use sqlx::Sqlite;
+use crate::{
+    api::state::ApiState,
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
+    types::Shared,
+};
 
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
-
-pub fn create_router(state: ConcreteState) -> Router {
+pub fn create_router<DB, BP, ES>(state: ApiState<DB, BP, ES>) -> Router
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     Router::new()
         .route("/", get(handlers::home::home))
         .route("/allowlist", post(handlers::clients::allowlist_domain))

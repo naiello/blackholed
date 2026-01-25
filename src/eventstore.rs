@@ -1,6 +1,9 @@
 use std::{net::IpAddr, str::FromStr, time::Duration};
 
-use crate::model::{BlockEvent, EventStoreBlockedEvent, EventStoreClient};
+use crate::{
+    model::{BlockEvent, EventStoreBlockedEvent, EventStoreClient},
+    types::Shared,
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -10,7 +13,7 @@ use tokio::time;
 use tokio_util::task::AbortOnDropHandle;
 
 #[async_trait]
-pub trait EventStore {
+pub trait EventStore: Shared {
     async fn put_block_event(&self, event: &BlockEvent) -> Result<()>;
     async fn get_clients(&self) -> Result<Vec<EventStoreClient>>;
     async fn get_clients_paginated(
@@ -38,11 +41,15 @@ pub struct RedisEventStore {
     _sweeper: AbortOnDropHandle<()>,
 }
 
+impl Shared for RedisEventStore {}
+
 #[derive(Clone)]
 struct RedisEventStoreConnection {
     redis: redis::aio::MultiplexedConnection,
     client_ttl: TimeDelta,
 }
+
+impl Shared for RedisEventStoreConnection {}
 
 struct RedisEventStoreSweeper {
     conn: RedisEventStoreConnection,

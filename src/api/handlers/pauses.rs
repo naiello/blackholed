@@ -12,18 +12,22 @@ use crate::{
         model::*,
         state::ApiState,
     },
-    db::SqlDb,
-    eventstore::{EventStore, RedisEventStore},
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
+    types::Shared,
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 /// POST /api/pause/global - Start a global pause
-pub async fn start_global_pause(
-    State(state): State<ConcreteState>,
+pub async fn start_global_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Json(req): Json<StartPauseRequest>,
-) -> ApiResult<Json<PauseStatusResponse>> {
+) -> ApiResult<Json<PauseStatusResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Calculate expiration time
     let expires_at = if req.duration_seconds >= 31536000000 {
         // Permanent (>1000 years) - use year 9999
@@ -51,9 +55,14 @@ pub async fn start_global_pause(
 }
 
 /// DELETE /api/pause/global - Stop the global pause
-pub async fn stop_global_pause(
-    State(state): State<ConcreteState>,
-) -> ApiResult<Json<MessageResponse>> {
+pub async fn stop_global_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
+) -> ApiResult<Json<MessageResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Remove from EventStore
     state
         .eventstore
@@ -70,9 +79,14 @@ pub async fn stop_global_pause(
 }
 
 /// GET /api/pause/global - Get global pause status
-pub async fn get_global_pause(
-    State(state): State<ConcreteState>,
-) -> ApiResult<Json<PauseStatusResponse>> {
+pub async fn get_global_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
+) -> ApiResult<Json<PauseStatusResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     let pause_expires = state
         .eventstore
         .get_global_pause()
@@ -88,11 +102,16 @@ pub async fn get_global_pause(
 }
 
 /// POST /api/pause/clients/:ip - Start a pause for a specific client
-pub async fn start_client_pause(
-    State(state): State<ConcreteState>,
+pub async fn start_client_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
     Json(req): Json<StartPauseRequest>,
-) -> ApiResult<Json<PauseStatusResponse>> {
+) -> ApiResult<Json<PauseStatusResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Parse IP address
     let ip_addr = IpAddr::from_str(&ip)
         .map_err(|_| ApiError::BadRequest(format!("Invalid IP address: {}", ip)))?;
@@ -124,10 +143,15 @@ pub async fn start_client_pause(
 }
 
 /// DELETE /api/pause/clients/:ip - Stop the pause for a specific client
-pub async fn stop_client_pause(
-    State(state): State<ConcreteState>,
+pub async fn stop_client_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
-) -> ApiResult<Json<MessageResponse>> {
+) -> ApiResult<Json<MessageResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Parse IP address
     let ip_addr = IpAddr::from_str(&ip)
         .map_err(|_| ApiError::BadRequest(format!("Invalid IP address: {}", ip)))?;
@@ -148,10 +172,15 @@ pub async fn stop_client_pause(
 }
 
 /// GET /api/pause/clients/:ip - Get pause status for a specific client
-pub async fn get_client_pause(
-    State(state): State<ConcreteState>,
+pub async fn get_client_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
-) -> ApiResult<Json<PauseStatusResponse>> {
+) -> ApiResult<Json<PauseStatusResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Parse IP address
     let ip_addr = IpAddr::from_str(&ip)
         .map_err(|_| ApiError::BadRequest(format!("Invalid IP address: {}", ip)))?;

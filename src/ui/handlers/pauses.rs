@@ -9,13 +9,15 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use crate::{
-    api::{error::ApiError, error::ApiResult, state::ApiState},
-    db::SqlDb,
-    eventstore::{EventStore, RedisEventStore},
+    api::{
+        error::{ApiError, ApiResult},
+        state::ApiState,
+    },
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
+    types::Shared,
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 #[derive(Deserialize)]
 pub struct StartPauseForm {
@@ -23,10 +25,15 @@ pub struct StartPauseForm {
 }
 
 /// POST /pause/global - Start a global pause (UI handler)
-pub async fn start_global_pause(
-    State(state): State<ConcreteState>,
+pub async fn start_global_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Form(form): Form<StartPauseForm>,
-) -> ApiResult<Html<String>> {
+) -> ApiResult<Html<String>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     let duration_seconds: i64 = form
         .duration_seconds
         .parse()
@@ -82,7 +89,14 @@ pub async fn start_global_pause(
 }
 
 /// DELETE /pause/global - Stop the global pause (UI handler)
-pub async fn stop_global_pause(State(state): State<ConcreteState>) -> ApiResult<Html<String>> {
+pub async fn stop_global_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
+) -> ApiResult<Html<String>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Remove from EventStore
     state
         .eventstore
@@ -114,11 +128,16 @@ pub async fn stop_global_pause(State(state): State<ConcreteState>) -> ApiResult<
 }
 
 /// POST /pause/clients/:ip - Start a client pause (UI handler)
-pub async fn start_client_pause(
-    State(state): State<ConcreteState>,
+pub async fn start_client_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
     Form(form): Form<StartPauseForm>,
-) -> ApiResult<Html<String>> {
+) -> ApiResult<Html<String>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     let ip_addr = IpAddr::from_str(&ip)
         .map_err(|_| ApiError::BadRequest(format!("Invalid IP address: {}", ip)))?;
 
@@ -182,10 +201,15 @@ pub async fn start_client_pause(
 }
 
 /// DELETE /pause/clients/:ip - Stop the client pause (UI handler)
-pub async fn stop_client_pause(
-    State(state): State<ConcreteState>,
+pub async fn stop_client_pause<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
-) -> ApiResult<Html<String>> {
+) -> ApiResult<Html<String>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     let ip_addr = IpAddr::from_str(&ip)
         .map_err(|_| ApiError::BadRequest(format!("Invalid IP address: {}", ip)))?;
 

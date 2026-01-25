@@ -11,20 +11,23 @@ use crate::{
         state::ApiState,
         validation::validate_source_id,
     },
-    db::{Db, SqlDb},
-    eventstore::RedisEventStore,
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
     model::Source,
+    types::Shared,
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 /// POST /api/sources - Create a new source
-#[axum::debug_handler]
-pub async fn create_source(
-    State(state): State<ConcreteState>,
+pub async fn create_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Json(req): Json<CreateSourceRequest>,
-) -> ApiResult<Json<SourceResponse>> {
+) -> ApiResult<Json<SourceResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     validate_source_id(&req.id)?;
 
     if req.url.is_none() && req.path.is_none() {
@@ -66,10 +69,15 @@ pub async fn create_source(
 }
 
 /// GET /api/sources - List all sources with pagination
-pub async fn list_sources(
-    State(state): State<ConcreteState>,
+pub async fn list_sources<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Query(pagination): Query<PaginationQuery>,
-) -> ApiResult<Json<PaginatedResponse<SourceResponse>>> {
+) -> ApiResult<Json<PaginatedResponse<SourceResponse>>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     use crate::api::model::{decode_next_token, encode_next_token};
 
     // Decode next_token to get offset, or start at 0
@@ -109,10 +117,15 @@ pub async fn list_sources(
 }
 
 /// GET /api/sources/:id - Get a specific source
-pub async fn get_source(
-    State(state): State<ConcreteState>,
+pub async fn get_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
-) -> ApiResult<Json<SourceResponse>> {
+) -> ApiResult<Json<SourceResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     let source = state
         .db
         .get_source(&id)
@@ -130,10 +143,15 @@ pub async fn get_source(
 }
 
 /// DELETE /api/sources/:id - Delete a source
-pub async fn delete_source(
-    State(state): State<ConcreteState>,
+pub async fn delete_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<serde_json::Value>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     state.db.delete_source(&id).await?;
     state.blocklist.reload().await;
 
@@ -141,10 +159,15 @@ pub async fn delete_source(
 }
 
 /// POST /api/sources/:id/reload - Trigger manual reload of a source
-pub async fn reload_source(
-    State(state): State<ConcreteState>,
+pub async fn reload_source<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(id): Path<String>,
-) -> ApiResult<(axum::http::StatusCode, Json<serde_json::Value>)> {
+) -> ApiResult<(axum::http::StatusCode, Json<serde_json::Value>)>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists
     let source = state
         .db

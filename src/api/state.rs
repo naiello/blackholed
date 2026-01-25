@@ -5,14 +5,15 @@ use crate::{
     db::Db,
     eventstore::EventStore,
     sourceloader::SourceLoaderHandle,
+    types::Shared,
 };
 
 /// Shared state for API handlers
 pub struct ApiState<DB, BP, ES>
 where
-    DB: Db,
-    BP: BlocklistProvider,
-    ES: EventStore,
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
 {
     pub db: Arc<DB>,
     pub blocklist: Arc<BlocklistAuthority<BP>>,
@@ -22,9 +23,9 @@ where
 
 impl<DB, BP, ES> Clone for ApiState<DB, BP, ES>
 where
-    DB: Db,
-    BP: BlocklistProvider,
-    ES: EventStore,
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
 {
     fn clone(&self) -> Self {
         Self {
@@ -38,9 +39,9 @@ where
 
 impl<DB, BP, ES> ApiState<DB, BP, ES>
 where
-    DB: Db,
-    BP: BlocklistProvider,
-    ES: EventStore,
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
 {
     pub fn new(
         db: Arc<DB>,

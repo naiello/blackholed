@@ -7,4 +7,5 @@ pub mod model;
 pub mod parser;
 pub mod resolver;
 pub mod sourceloader;
+pub mod types;
 pub mod ui;

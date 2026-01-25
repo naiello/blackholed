@@ -19,9 +19,11 @@ use crate::{
         state::ApiState,
         validation::validate_and_normalize_domain,
     },
-    db::{Db, SqlDb},
-    eventstore::{EventStore, RedisEventStore},
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
     model::{HostDisposition, SourceHost},
+    types::Shared,
     ui::{
         handlers::helpers::{extract_client_ip, is_htmx_request},
         templates::{
@@ -30,21 +32,23 @@ use crate::{
         },
     },
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 #[derive(Deserialize)]
 pub struct ClientsQuery {
     pub next_token: Option<String>,
 }
 
-pub async fn list_clients(
-    State(state): State<ConcreteState>,
+pub async fn list_clients<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<ClientsQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Get the current user's IP
     let current_ip = extract_client_ip(ConnectInfo(addr), &headers);
     // Decode pagination token
@@ -128,13 +132,18 @@ pub struct ClientDetailQuery {
     pub next_token: Option<String>,
 }
 
-pub async fn client_detail(
-    State(state): State<ConcreteState>,
+pub async fn client_detail<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path(ip_str): Path<String>,
     headers: HeaderMap,
     Query(query): Query<ClientDetailQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Response, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Parse IP address, or use client IP if "self"
     let ip = if ip_str == "self" {
         extract_client_ip(ConnectInfo(addr), &headers)
@@ -235,10 +244,15 @@ pub struct AllowlistRequest {
     pub domain: String,
 }
 
-pub async fn allowlist_domain(
-    State(state): State<ConcreteState>,
+pub async fn allowlist_domain<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Form(req): Form<AllowlistRequest>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Html<String>, ApiError>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Validate and normalize domain
     let normalized = validate_and_normalize_domain(&req.domain)?;
 

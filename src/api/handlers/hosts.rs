@@ -11,20 +11,24 @@ use crate::{
         state::ApiState,
         validation::validate_and_normalize_domain,
     },
-    db::{Db, SqlDb},
-    eventstore::RedisEventStore,
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
     model::SourceHost,
+    types::Shared,
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 /// POST /api/sources/:source_id/hosts - Add a host to a manually-managed source
-pub async fn create_host(
-    State(state): State<ConcreteState>,
+pub async fn create_host<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(source_id): Path<String>,
     Json(req): Json<CreateHostRequest>,
-) -> ApiResult<Json<HostResponse>> {
+) -> ApiResult<Json<HostResponse>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists and is manually managed
     let source = state
         .db
@@ -63,11 +67,16 @@ pub async fn create_host(
 }
 
 /// GET /api/sources/:source_id/hosts - List hosts for a source with pagination
-pub async fn list_hosts(
-    State(state): State<ConcreteState>,
+pub async fn list_hosts<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(source_id): Path<String>,
     Query(pagination): Query<PaginationQuery>,
-) -> ApiResult<Json<PaginatedResponse<HostResponse>>> {
+) -> ApiResult<Json<PaginatedResponse<HostResponse>>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     use crate::api::model::{decode_next_token, encode_next_token};
 
     // Verify source exists
@@ -113,10 +122,15 @@ pub async fn list_hosts(
 }
 
 /// DELETE /api/sources/:source_id/hosts/:name - Delete a host from a manually-managed source
-pub async fn delete_host(
-    State(state): State<ConcreteState>,
+pub async fn delete_host<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path((source_id, name)): Path<(String, String)>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<serde_json::Value>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     // Verify source exists and is manually managed
     let source = state
         .db

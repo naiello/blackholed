@@ -11,18 +11,22 @@ use crate::{
         model::*,
         state::ApiState,
     },
-    db::SqlDb,
-    eventstore::{EventStore, RedisEventStore},
+    blocklist::BlocklistProvider,
+    db::Db,
+    eventstore::EventStore,
+    types::Shared,
 };
-use sqlx::Sqlite;
-
-type ConcreteState = ApiState<SqlDb<Sqlite>, SqlDb<Sqlite>, RedisEventStore>;
 
 /// GET /api/clients - List all active clients with pagination
-pub async fn list_clients(
-    State(state): State<ConcreteState>,
+pub async fn list_clients<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Query(pagination): Query<PaginationQuery>,
-) -> ApiResult<Json<PaginatedResponse<ClientResponse>>> {
+) -> ApiResult<Json<PaginatedResponse<ClientResponse>>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     use crate::api::model::{decode_next_token, encode_next_token};
 
     // Decode next_token to get offset, or start at 0
@@ -60,11 +64,16 @@ pub async fn list_clients(
 }
 
 /// GET /api/clients/:ip/events - List block events for a specific client with pagination
-pub async fn list_client_events(
-    State(state): State<ConcreteState>,
+pub async fn list_client_events<DB, BP, ES>(
+    State(state): State<ApiState<DB, BP, ES>>,
     Path(ip): Path<String>,
     Query(pagination): Query<PaginationQuery>,
-) -> ApiResult<Json<PaginatedResponse<BlockEventResponse>>> {
+) -> ApiResult<Json<PaginatedResponse<BlockEventResponse>>>
+where
+    DB: Db + Shared,
+    BP: BlocklistProvider + Shared,
+    ES: EventStore + Shared,
+{
     use crate::api::model::{decode_next_token, encode_next_token};
 
     let ip_addr = IpAddr::from_str(&ip)

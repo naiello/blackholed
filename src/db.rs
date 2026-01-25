@@ -10,6 +10,7 @@ use sqlx::{
 use crate::{
     blocklist::BlocklistProvider,
     model::{HostDisposition, Source, SourceHost},
+    types::Shared,
 };
 use async_trait::async_trait;
 
@@ -18,7 +19,7 @@ pub struct SqlDb<DB: Database> {
 }
 
 #[async_trait]
-pub trait Db {
+pub trait Db: Shared {
     async fn put_source(&self, source: Source) -> Result<()>;
     async fn delete_source(&self, id: &str) -> Result<()>;
     fn get_all_sources(&self) -> impl Stream<Item = Source> + Send;
@@ -59,6 +60,8 @@ impl SqlDb<Sqlite> {
         Ok(SqlDb { pool })
     }
 }
+
+impl Shared for SqlDb<Sqlite> {}
 
 #[async_trait]
 impl Db for SqlDb<Sqlite> {
