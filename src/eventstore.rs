@@ -1,6 +1,7 @@
 use std::{net::IpAddr, str::FromStr, time::Duration};
 
 use crate::{
+    config::EventStoreConfig,
     model::{BlockEvent, EventStoreBlockedEvent, EventStoreClient},
     types::Shared,
 };
@@ -60,27 +61,24 @@ struct RedisEventStoreSweeper {
 }
 
 impl RedisEventStore {
-    pub async fn new(
-        endpoint: String,
-        event_ttl: TimeDelta,
-        client_ttl: TimeDelta,
-        sweeper_interval: TimeDelta,
-        shutdown: ShutdownGuard,
-    ) -> Result<Self> {
-        let client = redis::Client::open(endpoint).context("Failed to create Redis client")?;
+    pub async fn new(config: EventStoreConfig, shutdown: ShutdownGuard) -> Result<Self> {
+        let client = redis::Client::open(config.endpoint.to_owned())
+            .context("Failed to create Redis client")?;
+
         let conn = RedisEventStoreConnection {
             redis: client
                 .get_multiplexed_async_connection()
                 .await
                 .context("Failed to open connection to Redis")?,
-            client_ttl,
+            client_ttl: config.client_ttl(),
         };
 
         let sweeper = RedisEventStoreSweeper {
             conn: conn.clone(),
-            event_ttl,
-            client_ttl,
-            interval: sweeper_interval
+            event_ttl: config.event_ttl(),
+            client_ttl: config.client_ttl(),
+            interval: config
+                .sweeper_interval()
                 .to_std()
                 .context("Invalid Redis sweeper interval")?,
         };

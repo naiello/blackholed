@@ -33,15 +33,9 @@ async fn main() -> Result<()> {
     let shutdown = Shutdown::default();
 
     let eventstore = Arc::new(
-        RedisEventStore::new(
-            config.eventstore.endpoint.clone(),
-            config.eventstore.event_ttl(),
-            config.eventstore.client_ttl(),
-            config.eventstore.sweeper_interval(),
-            shutdown.guard(),
-        )
-        .await
-        .context("Failed to initialize Redis EventStore")?,
+        RedisEventStore::new(config.eventstore, shutdown.guard())
+            .await
+            .context("Failed to initialize Redis EventStore")?,
     );
 
     let db = Arc::new(
