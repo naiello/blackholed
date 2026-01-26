@@ -18,10 +18,12 @@ use tokio_graceful::Shutdown;
 #[tokio::main]
 async fn main() -> Result<()> {
     if env::var("BLACKHOLE_LOG").is_err() {
-        env::set_var(
-            "BLACKHOLE_LOG",
-            "info,hickory_server::server=warn,tokio_graceful::shutdown=warn",
-        );
+        unsafe {
+            env::set_var(
+                "BLACKHOLE_LOG",
+                "info,hickory_server::server=warn,tokio_graceful::shutdown=warn",
+            );
+        }
     }
     pretty_env_logger::try_init_timed_custom_env("BLACKHOLE_LOG")?;
 
