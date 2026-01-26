@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::{future::join_all, Stream, StreamExt};
 use tokio::{
+    select,
     sync::{broadcast, RwLock},
     time,
 };
@@ -30,6 +31,7 @@ use hickory_server::{
     },
     server::RequestInfo,
 };
+use tokio_graceful::ShutdownGuard;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::config::BlocklistConfig;
@@ -60,6 +62,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         config: &BlocklistConfig,
         provider: Arc<BP>,
         eventstore: Arc<ES>,
+        shutdown: ShutdownGuard,
     ) -> Self {
         let (blocked_tx, blocked_rx) = broadcast::channel(1024);
 
@@ -67,7 +70,8 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             eventstore: eventstore.clone(),
             blocked_rx,
         };
-        let event_logger_handle = tokio::spawn(async move { event_logger.run().await });
+        let event_logger_handle =
+            shutdown.spawn_task_fn(|guard| async move { event_logger.run(guard).await });
 
         let global_pause_active = Arc::new(AtomicBool::new(false));
         let client_pause_active = Arc::new(RwLock::new(HashSet::new()));
@@ -76,7 +80,8 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             global_pause_active: global_pause_active.clone(),
             client_pause_active: client_pause_active.clone(),
         };
-        let pause_manager_handle = tokio::spawn(async move { pause_manager.run().await });
+        let pause_manager_handle =
+            shutdown.spawn_task_fn(|guard| async move { pause_manager.run(guard).await });
 
         let authority = Self {
             origin: origin.into(),
@@ -327,22 +332,28 @@ struct PauseManager<ES: EventStore> {
 }
 
 impl<ES: EventStore> PauseManager<ES> {
-    async fn run(&self) {
+    async fn run(&self, shutdown: ShutdownGuard) {
         log::info!("Starting pause manager");
 
         let mut interval = time::interval(Duration::from_secs(60));
         loop {
-            interval.tick().await;
+            select! {
+                _ = interval.tick() => {
+                    self.check_global_pause()
+                        .await
+                        .inspect_err(|err| log::error!("Failed to check global pause: {err}"))
+                        .ok();
 
-            self.check_global_pause()
-                .await
-                .inspect_err(|err| log::error!("Failed to check global pause: {err}"))
-                .ok();
-
-            self.check_client_pauses()
-                .await
-                .inspect_err(|err| log::error!("Failed to check client pauses: {err}"))
-                .ok();
+                    self.check_client_pauses()
+                        .await
+                        .inspect_err(|err| log::error!("Failed to check client pauses: {err}"))
+                        .ok();
+                },
+                _ = shutdown.cancelled() => {
+                    log::info!("Pause manager shutting down");
+                    break;
+                },
+            }
         }
     }
 
@@ -411,23 +422,31 @@ pub trait BlocklistProvider {
 }
 
 impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {
-    async fn run(&mut self) {
+    async fn run(&mut self, shutdown: ShutdownGuard) {
         log::info!("Starting BlocklistAuthority event persistence task");
 
         loop {
-            match self.blocked_rx.recv().await {
-                Ok(event) => {
-                    if let Err(e) = self.eventstore.put_block_event(&event).await {
-                        log::error!("Failed to persist block event to EventStore: {}", e);
+            select! {
+                event = self.blocked_rx.recv() => {
+                    match event {
+                        Ok(event) => {
+                            if let Err(e) = self.eventstore.put_block_event(&event).await {
+                                log::error!("Failed to persist block event to EventStore: {}", e);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            log::warn!("Event persistence task lagged, skipped {} events", skipped);
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            log::error!("Block event channel closed, stopping persistence task");
+                            break;
+                        }
                     }
-                }
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    log::warn!("Event persistence task lagged, skipped {} events", skipped);
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    log::error!("Block event channel closed, stopping persistence task");
+                },
+                _ = shutdown.cancelled() => {
+                    log::info!("Event logger shutting down");
                     break;
-                }
+                },
             }
         }
     }

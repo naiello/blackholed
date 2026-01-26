@@ -8,12 +8,14 @@ use tokio::{
     sync::mpsc,
     time,
 };
+use tokio_graceful::ShutdownGuard;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::{
     blocklist::{BlocklistAuthority, BlocklistProvider},
     db::Db,
     model::{Source, SourceHost},
+    types::Shared,
 };
 
 pub struct SourceLoader {
@@ -30,15 +32,17 @@ struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
 }
 
 impl SourceLoader {
-    pub async fn new<
-        DB: Db + Send + Sync + 'static,
-        BP: BlocklistProvider + Send + Sync + 'static,
-    >(
+    pub async fn new<DB, BP>(
         run_interval: TimeDelta,
         stale_age: TimeDelta,
         db: Arc<DB>,
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
-    ) -> Result<Self> {
+        shutdown: ShutdownGuard,
+    ) -> Result<Self>
+    where
+        DB: Db + Shared,
+        BP: BlocklistProvider + Shared,
+    {
         let (reload_tx, reload_rx) = mpsc::channel(32);
 
         let task = SourceLoaderTask {
@@ -48,7 +52,7 @@ impl SourceLoader {
             run_interval: run_interval.to_std().context("Invalid run interval")?,
             reload_rx,
         };
-        let handle = tokio::spawn(async move { task.run().await });
+        let handle = shutdown.spawn_task_fn(|guard| async move { task.run(guard).await });
         Ok(SourceLoader {
             _task: AbortOnDropHandle::new(handle),
             reload_tx,
@@ -64,7 +68,7 @@ impl SourceLoader {
 }
 
 impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
-    async fn run(mut self) {
+    async fn run(mut self, shutdown: ShutdownGuard) {
         log::info!("Starting SourceLoader background task");
 
         // Perform initial refresh immediately on startup
@@ -87,6 +91,10 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                     if let Err(err) = self.handle_manual_reload(source_id).await {
                         log::error!("Error during manual reload: {:?}", err);
                     }
+                }
+                _ = shutdown.cancelled() => {
+                    log::info!("Source loader shutting down");
+                    break;
                 }
             }
         }

@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
 use hickory_server::proto::rr::LowerName;
 use redis::AsyncCommands;
-use tokio::time;
+use tokio::{select, time};
+use tokio_graceful::ShutdownGuard;
 use tokio_util::task::AbortOnDropHandle;
 
 #[async_trait]
@@ -64,6 +65,7 @@ impl RedisEventStore {
         event_ttl: TimeDelta,
         client_ttl: TimeDelta,
         sweeper_interval: TimeDelta,
+        shutdown: ShutdownGuard,
     ) -> Result<Self> {
         let client = redis::Client::open(endpoint).context("Failed to create Redis client")?;
         let conn = RedisEventStoreConnection {
@@ -82,8 +84,8 @@ impl RedisEventStore {
                 .to_std()
                 .context("Invalid Redis sweeper interval")?,
         };
-        let sweeper_handle = tokio::task::spawn(async move {
-            sweeper.run().await;
+        let sweeper_handle = shutdown.spawn_task_fn(|guard| async move {
+            sweeper.run(guard).await;
         });
 
         let store = Self {
@@ -333,14 +335,20 @@ impl EventStore for RedisEventStore {
 }
 
 impl RedisEventStoreSweeper {
-    async fn run(mut self) {
+    async fn run(mut self, shutdown: ShutdownGuard) {
         log::info!("Starting Redis sweeper task");
         let mut interval = time::interval(self.interval);
         loop {
-            interval.tick().await;
-
-            if let Err(e) = self.sweep().await {
-                log::error!("Error during sweeper cleanup: {}", e);
+            select! {
+                _ = interval.tick() => {
+                    if let Err(e) = self.sweep().await {
+                        log::error!("Error during sweeper cleanup: {}", e);
+                    }
+                },
+                _ = shutdown.cancelled() => {
+                    log::info!("Redis sweeper shutting down");
+                    break;
+                },
             }
         }
     }

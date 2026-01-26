@@ -7,10 +7,7 @@ use axum::{
 };
 
 use crate::{
-    api::state::ApiState,
-    blocklist::BlocklistProvider,
-    db::Db,
-    eventstore::EventStore,
+    api::state::ApiState, blocklist::BlocklistProvider, db::Db, eventstore::EventStore,
     types::Shared,
 };
 

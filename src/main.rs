@@ -1,4 +1,4 @@
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use blackholed::{
@@ -8,16 +8,20 @@ use blackholed::{
     db::{Db, SqlDb},
     eventstore::RedisEventStore,
     model::{HostDisposition, Source},
-    resolver,
+    resolver::Resolver,
     sourceloader::SourceLoader,
 };
 use chrono::Utc;
 use hickory_server::resolver::Name;
+use tokio_graceful::Shutdown;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     if env::var("BLACKHOLE_LOG").is_err() {
-        env::set_var("BLACKHOLE_LOG", "info,hickory_server::server=warn");
+        env::set_var(
+            "BLACKHOLE_LOG",
+            "info,hickory_server::server=warn,tokio_graceful::shutdown=warn",
+        );
     }
     pretty_env_logger::try_init_timed_custom_env("BLACKHOLE_LOG")?;
 
@@ -26,12 +30,15 @@ async fn main() -> Result<()> {
     let config = Config::load().context("Failed to load configuration")?;
     log::info!("Configuration loaded successfully");
 
+    let shutdown = Shutdown::default();
+
     let eventstore = Arc::new(
         RedisEventStore::new(
             config.eventstore.endpoint.clone(),
             config.eventstore.event_ttl(),
             config.eventstore.client_ttl(),
             config.eventstore.sweeper_interval(),
+            shutdown.guard(),
         )
         .await
         .context("Failed to initialize Redis EventStore")?,
@@ -49,6 +56,7 @@ async fn main() -> Result<()> {
             &config.blocklist,
             db.clone(),
             eventstore.clone(),
+            shutdown.guard(),
         )
         .await,
     );
@@ -74,32 +82,33 @@ async fn main() -> Result<()> {
             config.sourceloader.stale_age(),
             db.clone(),
             blocklist.clone(),
+            shutdown.guard(),
         )
         .await
         .context("Failed to start SourceLoader")?,
     );
 
-    // Create API state and spawn server
     let _api = Api::new(
         config.api,
         db.clone(),
         blocklist.clone(),
         eventstore.clone(),
         sourceloader,
-    );
-
-    // Start DNS resolver
-    let mut dns_server = resolver::start(
-        config.resolver.port,
-        config.resolver.upstream.to_nameserver_config_group()?,
-        config.resolver.cache_size,
-        config.resolver.zones,
-        blocklist.clone(),
+        shutdown.guard(),
     )
     .await
-    .context("Failed to start server")?;
+    .context("Failed to start API server")?;
 
-    dns_server.block_until_done().await?;
+    let _resolver = Resolver::new(config.resolver, blocklist.clone(), shutdown.guard())
+        .await
+        .context("Failed to start resolver")?;
+
+    shutdown
+        .shutdown_with_limit(Duration::from_mins(1))
+        .await
+        .context("Error while performing graceful shutdown")?;
+
+    log::info!("Shutdown complete");
 
     Ok(())
 }

@@ -30,5 +30,6 @@ serde_json = "1.0"
 simple_logger = "4.2.0"
 sqlx = { version = "0.8.6", features = ["sqlite", "chrono", "runtime-tokio"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs", "sync"] }
+tokio-graceful = "0.2.2"
 tokio-util = { version = "0.7.18", features = ["rt"] }
 tower-http = { version = "0.5", features = ["trace", "fs"] }
