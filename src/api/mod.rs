@@ -66,7 +66,9 @@ impl Api {
                 guard.cancelled().await;
             });
 
-            if let Err(err) = server.await { log::error!("Server died unexpectedly: {err}") }
+            if let Err(err) = server.await {
+                log::error!("Server died unexpectedly: {err}")
+            }
         });
 
         Ok(Self {

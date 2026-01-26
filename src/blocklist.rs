@@ -34,9 +34,9 @@ use hickory_server::{
 use tokio_graceful::ShutdownGuard;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::config::BlocklistConfig;
 use crate::eventstore::EventStore;
 use crate::model::{BlockEvent, HostDisposition, SourceHost};
+use crate::{config::BlocklistConfig, types::Shared};
 
 pub struct BlocklistAuthority<BP: BlocklistProvider> {
     origin: LowerName,
@@ -57,7 +57,7 @@ struct BlocklistAuthorityEventLogger<ES: EventStore> {
 }
 
 impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
-    pub async fn new<ES: EventStore + Send + Sync + 'static>(
+    pub async fn new<ES: EventStore + Shared>(
         origin: Name,
         config: &BlocklistConfig,
         provider: Arc<BP>,
