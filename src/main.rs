@@ -78,6 +78,8 @@ async fn main() -> Result<()> {
             config.sourceloader.stale_age(),
             db.clone(),
             blocklist.clone(),
+            config.sourceloader.blocklist_dirs,
+            config.sourceloader.allowlist_dirs,
             shutdown.guard(),
         )
         .await

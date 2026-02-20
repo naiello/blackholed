@@ -174,6 +174,12 @@ pub struct SourceLoaderConfig {
     /// Stale age in seconds
     #[serde(default = "default_stale_age_secs")]
     pub stale_age_secs: i64,
+    /// Directories to scan for blocklist files
+    #[serde(default = "default_blocklist_dirs")]
+    pub blocklist_dirs: Vec<PathBuf>,
+    /// Directories to scan for allowlist files
+    #[serde(default = "default_allowlist_dirs")]
+    pub allowlist_dirs: Vec<PathBuf>,
 }
 
 fn default_run_interval_secs() -> i64 {
@@ -184,11 +190,21 @@ fn default_stale_age_secs() -> i64 {
     604800 // 7 days
 }
 
+fn default_blocklist_dirs() -> Vec<PathBuf> {
+    vec![PathBuf::from("/etc/blackhole/blocklist.d")]
+}
+
+fn default_allowlist_dirs() -> Vec<PathBuf> {
+    vec![PathBuf::from("/etc/blackhole/allowlist.d")]
+}
+
 impl Default for SourceLoaderConfig {
     fn default() -> Self {
         Self {
             run_interval_secs: default_run_interval_secs(),
             stale_age_secs: default_stale_age_secs(),
+            blocklist_dirs: default_blocklist_dirs(),
+            allowlist_dirs: default_allowlist_dirs(),
         }
     }
 }

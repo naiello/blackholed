@@ -50,6 +50,14 @@ run_interval_secs = 21600
 # Default: 604800 (7 days)
 stale_age_secs = 604800
 
+# Directories to scan for blocklist files (auto-discovered, system-managed)
+# Default: ["/etc/blackhole/blocklist.d"]
+blocklist_dirs = ["/etc/blackhole/blocklist.d"]
+
+# Directories to scan for allowlist files (auto-discovered, system-managed)
+# Default: ["/etc/blackhole/allowlist.d"]
+allowlist_dirs = ["/etc/blackhole/allowlist.d"]
+
 [blocklist]
 # Enable wildcard matching for domains
 wildcard_match = true

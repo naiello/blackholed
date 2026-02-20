@@ -12,7 +12,8 @@ use serde::Deserialize;
 use crate::{
     api::{
         error::ApiError,
-        model::{encode_next_token, HostResponse, PaginatedResponse, SourceResponse, PAGE_SIZE},
+        handlers::sources::source_to_response,
+        model::{encode_next_token, HostResponse, PaginatedResponse, PAGE_SIZE},
         state::ApiState,
         validation::{validate_and_normalize_domain, validate_source_id},
     },
@@ -62,17 +63,7 @@ where
 
     // Convert to response models
     let sources = PaginatedResponse {
-        items: sources
-            .into_iter()
-            .map(|s| SourceResponse {
-                id: s.id,
-                url: s.url,
-                path: s.path,
-                disposition: s.disposition,
-                created_at: s.created_at,
-                updated_at: s.updated_at,
-            })
-            .collect(),
+        items: sources.into_iter().map(source_to_response).collect(),
         next_token,
     };
 
@@ -100,7 +91,6 @@ pub struct CreateSourceForm {
     pub id: String,
     pub disposition: String,
     pub url: Option<String>,
-    pub path: Option<String>,
 }
 
 pub async fn create_source<DB, BP, ES>(
@@ -115,6 +105,14 @@ where
     // Validate source ID
     validate_source_id(&form.id)?;
 
+    // Reject reserved file- prefix
+    if form.id.starts_with("file-") {
+        return Err(ApiError::BadRequest(
+            "Source IDs starting with 'file-' are reserved for system-managed file sources"
+                .to_string(),
+        ));
+    }
+
     // Parse disposition
     let disposition: HostDisposition = form
         .disposition
@@ -123,14 +121,13 @@ where
 
     // Clean up empty strings to None
     let url = form.url.filter(|s| !s.is_empty());
-    let path = form.path.filter(|s| !s.is_empty());
 
     // Create source
     let now = Utc::now();
     let source = Source {
         id: form.id.clone(),
         url,
-        path,
+        path: None,
         disposition,
         created_at: now,
         updated_at: now,
@@ -142,17 +139,15 @@ where
         .await
         .map_err(ApiError::Internal)?;
 
-    // If source is auto-managed (has URL or path), trigger immediate reload
-    if source.url.is_some() || source.path.is_some() {
+    // If source is auto-managed (has URL), trigger immediate reload
+    if source.url.is_some() {
         log::info!("Triggering automatic reload for new source: {}", source.id);
         state
             .sourceloader
             .reload_source(source.id.clone())
             .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
-        // Note: blocklist will be reloaded automatically by the sourceloader after successful fetch
     }
-    // Note: No need to reload blocklist for manually-managed sources - they're empty on creation
 
     // Redirect to source detail
     Ok(Redirect::to(&format!("/sources/{}", form.id)).into_response())
@@ -181,17 +176,12 @@ where
         .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
 
     // Convert to response model
-    let source_response = SourceResponse {
-        id: source.id.clone(),
-        url: source.url.clone(),
-        path: source.path.clone(),
-        disposition: source.disposition,
-        created_at: source.created_at,
-        updated_at: source.updated_at,
-    };
+    let is_manually_managed = source.url.is_none() && source.path.is_none();
+    let source_id = source.id.clone();
+    let source_response = source_to_response(source);
 
     // If this is a manually-managed source, fetch hosts
-    let hosts = if source.url.is_none() && source.path.is_none() {
+    let hosts = if is_manually_managed {
         // Decode pagination token
         let offset = query
             .next_token
@@ -202,7 +192,7 @@ where
         // Fetch hosts (fetch PAGE_SIZE + 1 to detect if more exist)
         let mut hosts = state
             .db
-            .get_hosts_by_source_paginated(&source.id, PAGE_SIZE + 1, offset)
+            .get_hosts_by_source_paginated(&source_id, PAGE_SIZE + 1, offset)
             .await
             .map_err(ApiError::Internal)?;
 
@@ -358,6 +348,20 @@ where
     BP: BlocklistProvider + Shared,
     ES: EventStore + Shared,
 {
+    // Fetch source to check if it's file-managed
+    let source = state
+        .db
+        .get_source(&id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
+
+    if source.is_file_managed() {
+        return Err(ApiError::BadRequest(
+            "Cannot delete file-managed sources. Remove the file from the directory instead."
+                .to_string(),
+        ));
+    }
+
     // Delete source
     state
         .db

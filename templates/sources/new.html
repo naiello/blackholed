@@ -87,18 +87,10 @@
                         />
                         <span class="ml-2 dark:text-gray-200">URL - Automatically fetch from URL</span>
                     </label>
-                    <br/>
-                    <label class="inline-flex items-center">
-                        <input
-                            type="radio"
-                            name="source_type"
-                            value="file"
-                            class="form-radio text-blue-600"
-                            onchange="toggleSourceFields()"
-                        />
-                        <span class="ml-2 dark:text-gray-200">File - Load from local file</span>
-                    </label>
                 </div>
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    File-based sources are automatically discovered from configured directories.
+                </p>
             </div>
 
             <div id="url-field" class="hidden">
@@ -111,19 +103,6 @@
                     name="url"
                     class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="https://example.com/blocklist.txt"
-                />
-            </div>
-
-            <div id="path-field" class="hidden">
-                <label for="path" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                    File Path
-                </label>
-                <input
-                    type="text"
-                    id="path"
-                    name="path"
-                    class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="/etc/blackholed/blocklist.txt"
                 />
             </div>
 
@@ -149,29 +128,15 @@
 function toggleSourceFields() {
     const sourceType = document.querySelector('input[name="source_type"]:checked').value;
     const urlField = document.getElementById('url-field');
-    const pathField = document.getElementById('path-field');
     const urlInput = document.getElementById('url');
-    const pathInput = document.getElementById('path');
 
     if (sourceType === 'url') {
         urlField.classList.remove('hidden');
-        pathField.classList.add('hidden');
         urlInput.required = true;
-        pathInput.required = false;
-        pathInput.value = '';
-    } else if (sourceType === 'file') {
-        urlField.classList.add('hidden');
-        pathField.classList.remove('hidden');
-        urlInput.required = false;
-        pathInput.required = true;
-        urlInput.value = '';
     } else {
         urlField.classList.add('hidden');
-        pathField.classList.add('hidden');
         urlInput.required = false;
-        pathInput.required = false;
         urlInput.value = '';
-        pathInput.value = '';
     }
 }
 </script>

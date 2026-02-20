@@ -1,8 +1,9 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::StreamExt;
+use notify::{EventKind, RecommendedWatcher, Watcher};
 use tokio::{
     io::{AsyncBufRead, BufReader},
     sync::mpsc,
@@ -14,12 +15,13 @@ use tokio_util::task::AbortOnDropHandle;
 use crate::{
     blocklist::{BlocklistAuthority, BlocklistProvider},
     db::Db,
-    model::{Source, SourceHost},
+    model::{HostDisposition, Source, SourceHost},
     types::Shared,
 };
 
 pub struct SourceLoader {
     _task: AbortOnDropHandle<()>,
+    _watcher_task: Option<AbortOnDropHandle<()>>,
     reload_tx: mpsc::Sender<String>,
 }
 
@@ -29,6 +31,15 @@ struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
     run_interval: Duration,
     stale_age: TimeDelta,
     reload_rx: mpsc::Receiver<String>,
+    file_change_rx: mpsc::Receiver<()>,
+    blocklist_dirs: Vec<PathBuf>,
+    allowlist_dirs: Vec<PathBuf>,
+}
+
+/// A file discovered in a watched directory, paired with its disposition.
+struct DiscoveredFile {
+    path: PathBuf,
+    disposition: HostDisposition,
 }
 
 impl SourceLoader {
@@ -37,6 +48,8 @@ impl SourceLoader {
         stale_age: TimeDelta,
         db: Arc<DB>,
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
+        blocklist_dirs: Vec<PathBuf>,
+        allowlist_dirs: Vec<PathBuf>,
         shutdown: ShutdownGuard,
     ) -> Result<Self>
     where
@@ -44,6 +57,15 @@ impl SourceLoader {
         BP: BlocklistProvider + Shared,
     {
         let (reload_tx, reload_rx) = mpsc::channel(32);
+        let (file_change_tx, file_change_rx) = mpsc::channel(32);
+
+        // Set up file watcher
+        let watcher_task = setup_file_watcher(
+            &blocklist_dirs,
+            &allowlist_dirs,
+            file_change_tx,
+            shutdown.clone(),
+        );
 
         let task = SourceLoaderTask {
             db,
@@ -51,10 +73,14 @@ impl SourceLoader {
             stale_age,
             run_interval: run_interval.to_std().context("Invalid run interval")?,
             reload_rx,
+            file_change_rx,
+            blocklist_dirs,
+            allowlist_dirs,
         };
         let handle = shutdown.spawn_task_fn(|guard| async move { task.run(guard).await });
         Ok(SourceLoader {
             _task: AbortOnDropHandle::new(handle),
+            _watcher_task: watcher_task,
             reload_tx,
         })
     }
@@ -67,11 +93,183 @@ impl SourceLoader {
     }
 }
 
+/// Derive a source ID from a file path and disposition.
+///
+/// For `/etc/blackhole/blocklist.d/ads.txt` with Block disposition: `file-block-ads-txt`
+/// For `/etc/blackhole/allowlist.d/personal.list` with Allow: `file-allow-personal-list`
+fn derive_source_id(path: &std::path::Path, disposition: HostDisposition) -> String {
+    let infix = match disposition {
+        HostDisposition::Block => "block",
+        HostDisposition::Allow => "allow",
+    };
+
+    let filename = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let sanitized: String = filename
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+
+    // Collapse consecutive hyphens
+    let mut collapsed = String::with_capacity(sanitized.len());
+    let mut prev_hyphen = false;
+    for c in sanitized.chars() {
+        if c == '-' {
+            if !prev_hyphen {
+                collapsed.push(c);
+            }
+            prev_hyphen = true;
+        } else {
+            collapsed.push(c);
+            prev_hyphen = false;
+        }
+    }
+
+    // Trim leading/trailing hyphens
+    let collapsed = collapsed.trim_matches('-');
+
+    let id = format!("file-{}-{}", infix, collapsed);
+
+    // Truncate to 64 chars
+    if id.len() > 64 {
+        id[..64].to_string()
+    } else {
+        id
+    }
+}
+
+/// Scan configured directories for list files.
+fn scan_directories(
+    blocklist_dirs: &[PathBuf],
+    allowlist_dirs: &[PathBuf],
+) -> Vec<DiscoveredFile> {
+    let mut files = Vec::new();
+
+    for (dirs, disposition) in [
+        (blocklist_dirs, HostDisposition::Block),
+        (allowlist_dirs, HostDisposition::Allow),
+    ] {
+        for dir in dirs {
+            match std::fs::read_dir(dir) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+
+                        // Skip directories and symlinks
+                        if !path.is_file() {
+                            continue;
+                        }
+
+                        // Skip dotfiles
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            if name.starts_with('.') {
+                                continue;
+                            }
+                        }
+
+                        files.push(DiscoveredFile { path, disposition });
+                    }
+                }
+                Err(err) => {
+                    log::warn!("Cannot read directory {}: {}", dir.display(), err);
+                }
+            }
+        }
+    }
+
+    files
+}
+
+/// Set up a filesystem watcher on the configured directories.
+/// Returns a task handle that keeps the watcher alive, or None if no directories exist.
+fn setup_file_watcher(
+    blocklist_dirs: &[PathBuf],
+    allowlist_dirs: &[PathBuf],
+    change_tx: mpsc::Sender<()>,
+    shutdown: ShutdownGuard,
+) -> Option<AbortOnDropHandle<()>> {
+    let all_dirs: Vec<PathBuf> = blocklist_dirs
+        .iter()
+        .chain(allowlist_dirs.iter())
+        .filter(|d| d.is_dir())
+        .cloned()
+        .collect();
+
+    if all_dirs.is_empty() {
+        log::info!("No existing source directories to watch");
+        return None;
+    }
+
+    // Channel for raw notify events
+    let (raw_tx, mut raw_rx) = mpsc::channel::<()>(64);
+
+    let mut watcher = match RecommendedWatcher::new(
+        move |res: notify::Result<notify::Event>| {
+            if let Ok(event) = res {
+                match event.kind {
+                    EventKind::Create(_)
+                    | EventKind::Modify(_)
+                    | EventKind::Remove(_) => {
+                        let _ = raw_tx.try_send(());
+                    }
+                    _ => {}
+                }
+            }
+        },
+        notify::Config::default(),
+    ) {
+        Ok(w) => w,
+        Err(err) => {
+            log::error!("Failed to create file watcher: {}", err);
+            return None;
+        }
+    };
+
+    for dir in &all_dirs {
+        if let Err(err) = watcher.watch(dir, notify::RecursiveMode::NonRecursive) {
+            log::error!("Failed to watch directory {}: {}", dir.display(), err);
+        } else {
+            log::info!("Watching directory for changes: {}", dir.display());
+        }
+    }
+
+    // Debounce task: drain events over a 2-second window then forward a single signal
+    let handle = shutdown.spawn_task_fn(move |guard| async move {
+        // Keep watcher alive by moving it into this task
+        let _watcher = watcher;
+
+        loop {
+            tokio::select! {
+                Some(()) = raw_rx.recv() => {
+                    // Drain any additional events that arrive within the debounce window
+                    time::sleep(Duration::from_secs(2)).await;
+                    while raw_rx.try_recv().is_ok() {}
+                    let _ = change_tx.send(()).await;
+                }
+                _ = guard.cancelled() => {
+                    log::info!("File watcher shutting down");
+                    break;
+                }
+            }
+        }
+    });
+
+    Some(AbortOnDropHandle::new(handle))
+}
+
 impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
     async fn run(mut self, shutdown: ShutdownGuard) {
         log::info!("Starting SourceLoader background task");
 
-        // Perform initial refresh immediately on startup
+        // Perform initial file source sync
+        if let Err(err) = self.sync_and_refresh_file_sources(true).await {
+            log::error!("Error during initial file source sync: {:?}", err);
+        }
+
+        // Perform initial refresh of URL sources
         log::info!("Performing initial source refresh");
         if let Err(err) = self.refresh_all().await {
             log::error!("Error during initial source refresh: {:?}", err);
@@ -92,12 +290,135 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                         log::error!("Error during manual reload: {:?}", err);
                     }
                 }
+                Some(()) = self.file_change_rx.recv() => {
+                    log::info!("File change detected, syncing file sources");
+                    if let Err(err) = self.sync_and_refresh_file_sources(false).await {
+                        log::error!("Error during file source sync: {:?}", err);
+                    }
+                }
                 _ = shutdown.cancelled() => {
                     log::info!("Source loader shutting down");
                     break;
                 }
             }
         }
+    }
+
+    /// Sync file sources with directories and refresh any that need it.
+    /// On startup (`initial=true`), all file sources are refreshed.
+    /// On file change events, only new/changed sources are refreshed.
+    async fn sync_and_refresh_file_sources(&self, initial: bool) -> Result<()> {
+        let discovered = scan_directories(&self.blocklist_dirs, &self.allowlist_dirs);
+
+        // Build map of expected source IDs -> discovered files
+        let mut expected: HashMap<String, &DiscoveredFile> = HashMap::new();
+        for file in &discovered {
+            let id = derive_source_id(&file.path, file.disposition);
+            expected.insert(id, file);
+        }
+
+        // Get all existing file-managed sources from DB
+        let all_sources: Vec<Source> = self.db.get_all_sources().collect().await;
+        let existing_file_sources: Vec<&Source> =
+            all_sources.iter().filter(|s| s.is_file_managed()).collect();
+
+        let existing_ids: std::collections::HashSet<&str> =
+            existing_file_sources.iter().map(|s| s.id.as_str()).collect();
+
+        // Delete sources whose files no longer exist on disk
+        for source in &existing_file_sources {
+            if !expected.contains_key(&source.id) {
+                log::info!(
+                    "File source {} no longer has a file on disk, removing",
+                    source.id
+                );
+                if let Err(err) = self.db.delete_source(&source.id).await {
+                    log::error!("Failed to delete orphaned file source {}: {:?}", source.id, err);
+                }
+            }
+        }
+
+        // Create sources for new files and collect IDs that need refresh
+        let mut sources_to_refresh = Vec::new();
+
+        for (id, file) in &expected {
+            let is_new = !existing_ids.contains(id.as_str());
+
+            if is_new {
+                let now = Utc::now();
+                let source = Source {
+                    id: id.clone(),
+                    url: None,
+                    path: Some(file.path.to_string_lossy().to_string()),
+                    disposition: file.disposition,
+                    created_at: now,
+                    updated_at: now,
+                };
+                log::info!("Creating new file source: {} from {}", id, file.path.display());
+                if let Err(err) = self.db.put_source(source.clone()).await {
+                    log::error!("Failed to create file source {}: {:?}", id, err);
+                    continue;
+                }
+                sources_to_refresh.push(source);
+            } else if initial {
+                // On startup, refresh all existing file sources
+                if let Some(existing) = existing_file_sources.iter().find(|s| s.id == *id) {
+                    // Update path in case it changed (e.g. directory was reconfigured)
+                    let updated = Source {
+                        path: Some(file.path.to_string_lossy().to_string()),
+                        ..(*existing).clone()
+                    };
+                    sources_to_refresh.push(updated);
+                }
+            }
+        }
+
+        // On file change events (not initial), refresh ALL file sources since we
+        // don't know which specific file changed (notify debounce batches events)
+        if !initial && sources_to_refresh.is_empty() {
+            // Even if no new sources, some file content may have changed
+            for (id, file) in &expected {
+                if existing_ids.contains(id.as_str()) {
+                    if let Some(existing) = existing_file_sources.iter().find(|s| s.id == *id) {
+                        let updated = Source {
+                            path: Some(file.path.to_string_lossy().to_string()),
+                            ..(*existing).clone()
+                        };
+                        sources_to_refresh.push(updated);
+                    }
+                }
+            }
+        }
+
+        if sources_to_refresh.is_empty() {
+            return Ok(());
+        }
+
+        log::info!(
+            "Refreshing {} file sources",
+            sources_to_refresh.len()
+        );
+
+        let refresh_time = Utc::now();
+        let mut any_success = false;
+
+        for source in sources_to_refresh {
+            match self.refresh(source.clone(), refresh_time).await {
+                Ok(_) => {
+                    any_success = true;
+                    log::info!("Successfully refreshed file source: {}", source.id);
+                }
+                Err(err) => {
+                    log::error!("Failed to refresh file source {}: {:?}", source.id, err);
+                }
+            }
+        }
+
+        if any_success {
+            self.blocklist_authority.reload().await;
+        }
+
+        Ok(())
     }
 
     async fn handle_manual_reload(&self, source_id: String) -> Result<()> {
@@ -293,5 +614,31 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         } else {
             bail!("Source has neither URL nor path defined");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_source_id() {
+        let path = PathBuf::from("/etc/blackhole/blocklist.d/ads.txt");
+        assert_eq!(derive_source_id(&path, HostDisposition::Block), "file-block-ads-txt");
+
+        let path = PathBuf::from("/etc/blackhole/allowlist.d/personal.list");
+        assert_eq!(derive_source_id(&path, HostDisposition::Allow), "file-allow-personal-list");
+
+        let path = PathBuf::from("/some/path/my--weird...file.txt");
+        assert_eq!(derive_source_id(&path, HostDisposition::Block), "file-block-my-weird-file-txt");
+    }
+
+    #[test]
+    fn test_derive_source_id_truncation() {
+        let long_name = "a".repeat(100) + ".txt";
+        let path = PathBuf::from(format!("/etc/blackhole/blocklist.d/{}", long_name));
+        let id = derive_source_id(&path, HostDisposition::Block);
+        assert!(id.len() <= 64);
+        assert!(id.starts_with("file-block-"));
     }
 }

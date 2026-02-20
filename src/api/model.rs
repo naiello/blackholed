@@ -7,7 +7,6 @@ use crate::model::HostDisposition;
 pub struct CreateSourceRequest {
     pub id: String,
     pub url: Option<String>,
-    pub path: Option<String>,
     pub disposition: HostDisposition,
 }
 
@@ -17,6 +16,7 @@ pub struct SourceResponse {
     pub url: Option<String>,
     pub path: Option<String>,
     pub disposition: HostDisposition,
+    pub is_file_managed: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

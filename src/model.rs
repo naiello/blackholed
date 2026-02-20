@@ -65,6 +65,12 @@ pub struct Source {
     pub updated_at: DateTime<Utc>,
 }
 
+impl Source {
+    pub fn is_file_managed(&self) -> bool {
+        self.id.starts_with("file-")
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SourceHost {
     pub name: String,

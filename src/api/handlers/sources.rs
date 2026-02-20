@@ -18,6 +18,19 @@ use crate::{
     types::Shared,
 };
 
+pub fn source_to_response(source: Source) -> SourceResponse {
+    let is_file_managed = source.is_file_managed();
+    SourceResponse {
+        id: source.id,
+        url: source.url,
+        path: source.path,
+        disposition: source.disposition,
+        is_file_managed,
+        created_at: source.created_at,
+        updated_at: source.updated_at,
+    }
+}
+
 /// POST /api/sources - Create a new source
 pub async fn create_source<DB, BP, ES>(
     State(state): State<ApiState<DB, BP, ES>>,
@@ -30,7 +43,15 @@ where
 {
     validate_source_id(&req.id)?;
 
-    if req.url.is_none() && req.path.is_none() {
+    // Reject reserved file- prefix
+    if req.id.starts_with("file-") {
+        return Err(ApiError::BadRequest(
+            "Source IDs starting with 'file-' are reserved for system-managed file sources"
+                .to_string(),
+        ));
+    }
+
+    if req.url.is_none() {
         log::info!("Creating manually-managed source: {}", req.id);
     }
 
@@ -38,7 +59,7 @@ where
     let source = Source {
         id: req.id.clone(),
         url: req.url,
-        path: req.path,
+        path: None,
         disposition: req.disposition,
         created_at: now,
         updated_at: now,
@@ -46,26 +67,17 @@ where
 
     state.db.put_source(source.clone()).await?;
 
-    // If source is auto-managed (has URL or path), trigger immediate reload
-    if source.url.is_some() || source.path.is_some() {
+    // If source is auto-managed (has URL), trigger immediate reload
+    if source.url.is_some() {
         log::info!("Triggering automatic reload for new source: {}", source.id);
         state
             .sourceloader
             .reload_source(source.id.clone())
             .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to initiate reload: {}", e)))?;
-        // Note: blocklist will be reloaded automatically by the sourceloader after successful fetch
     }
-    // Note: No need to reload blocklist for manually-managed sources - they're empty on creation
 
-    Ok(Json(SourceResponse {
-        id: source.id,
-        url: source.url,
-        path: source.path,
-        disposition: source.disposition,
-        created_at: source.created_at,
-        updated_at: source.updated_at,
-    }))
+    Ok(Json(source_to_response(source)))
 }
 
 /// GET /api/sources - List all sources with pagination
@@ -101,17 +113,7 @@ where
         None
     };
 
-    let items = sources
-        .into_iter()
-        .map(|s| SourceResponse {
-            id: s.id,
-            url: s.url,
-            path: s.path,
-            disposition: s.disposition,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
-        })
-        .collect();
+    let items = sources.into_iter().map(source_to_response).collect();
 
     Ok(Json(PaginatedResponse { items, next_token }))
 }
@@ -132,14 +134,8 @@ where
         .await
         .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
 
-    Ok(Json(SourceResponse {
-        id: source.id,
-        url: source.url,
-        path: source.path,
-        disposition: source.disposition,
-        created_at: source.created_at,
-        updated_at: source.updated_at,
-    }))
+    let resp = source_to_response(source);
+    Ok(Json(resp))
 }
 
 /// DELETE /api/sources/:id - Delete a source
@@ -152,6 +148,20 @@ where
     BP: BlocklistProvider + Shared,
     ES: EventStore + Shared,
 {
+    // Fetch source to check if it's file-managed
+    let source = state
+        .db
+        .get_source(&id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Source {} not found", id)))?;
+
+    if source.is_file_managed() {
+        return Err(ApiError::BadRequest(
+            "Cannot delete file-managed sources via API. Remove the file from the directory instead."
+                .to_string(),
+        ));
+    }
+
     state.db.delete_source(&id).await?;
     state.blocklist.reload().await;
 
