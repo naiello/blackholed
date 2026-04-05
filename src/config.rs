@@ -17,17 +17,29 @@ pub struct Config {
     pub blocklist: BlocklistConfig,
 }
 
+/// Database driver selection
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DbDriver {
+    #[default]
+    Sqlite,
+    Postgres,
+}
+
 /// Database configuration
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct DatabaseConfig {
-    pub path: PathBuf,
+    pub driver: DbDriver,
+    /// For sqlite: path to the database file. For postgres: connection string.
+    pub url: String,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            path: PathBuf::from("/var/db/blackhole/blackholed.db"),
+            driver: DbDriver::default(),
+            url: "/var/db/blackhole/blackholed.db".to_string(),
         }
     }
 }
@@ -251,6 +263,7 @@ impl Config {
                     .format(config::FileFormat::Toml)
                     .required(false),
             )
+            .add_source(config::Environment::with_prefix("BLACKHOLE").separator("__"))
             .build()
             .context("Failed to build configuration")?
             .try_deserialize()

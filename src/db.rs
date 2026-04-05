@@ -1,21 +1,20 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
-use std::{path::Path, str::FromStr};
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use sqlx::{
-    sqlite::SqliteConnectOptions, Database, Executor, Pool, QueryBuilder, Row, Sqlite, SqlitePool,
-};
+use sqlx::{AnyPool, Row, any::AnyPoolOptions};
 
 use crate::{
     blocklist::BlocklistProvider,
+    config::{DatabaseConfig, DbDriver},
     model::{HostDisposition, Source, SourceHost},
     types::Shared,
 };
 use async_trait::async_trait;
 
-pub struct SqlDb<DB: Database> {
-    pool: Pool<DB>,
+pub struct SqlDb {
+    pool: AnyPool,
+    driver: DbDriver,
 }
 
 #[async_trait]
@@ -46,58 +45,129 @@ pub trait Db: Shared {
     ) -> impl Stream<Item = SourceHost> + Send;
 }
 
-impl SqlDb<Sqlite> {
-    pub async fn new_sqlite(path: impl AsRef<Path>) -> Result<SqlDb<Sqlite>> {
-        let opts = SqliteConnectOptions::new()
-            .filename(path)
-            .create_if_missing(true);
-        let pool = SqlitePool::connect_with(opts)
+impl SqlDb {
+    pub async fn new(config: &DatabaseConfig) -> Result<SqlDb> {
+        sqlx::any::install_default_drivers();
+
+        let connect_url = match config.driver {
+            DbDriver::Sqlite => format!("sqlite://{}?mode=rwc", config.url),
+            DbDriver::Postgres => config.url.clone(),
+        };
+        let driver = config.driver;
+
+        let pool = AnyPoolOptions::new()
+            .connect(&connect_url)
             .await
-            .context("Failed to create Sqlite DB handle")?;
+            .context("Failed to create database pool")?;
 
-        init_db(&pool).await.context("Failed to init tables")?;
+        init_db(&pool, driver).await.context("Failed to init tables")?;
 
-        Ok(SqlDb { pool })
+        Ok(SqlDb { pool, driver })
     }
 }
 
-impl Shared for SqlDb<Sqlite> {}
+impl Shared for SqlDb {}
+
+/// Format a DateTime<Utc> as RFC3339 for storage as TEXT in the database.
+fn fmt_ts(dt: DateTime<Utc>) -> String {
+    dt.to_rfc3339()
+}
+
+/// Parse a timestamp string (RFC3339 or SQLite's space-separated format) into DateTime<Utc>.
+fn parse_ts(s: &str) -> Result<DateTime<Utc>> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    // SQLite CURRENT_TIMESTAMP format: "2024-01-01 00:00:00"
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Ok(dt.and_utc());
+    }
+    bail!("Failed to parse timestamp: {}", s)
+}
+
+fn parse_source_row(row: &sqlx::any::AnyRow) -> Result<Source> {
+    let disposition_str: String = row.try_get("disposition")?;
+    let disposition = disposition_str.parse()?;
+    let created_at_str: String = row.try_get("created_at")?;
+    let updated_at_str: String = row.try_get("updated_at")?;
+    Ok(Source {
+        id: row.try_get("id")?,
+        url: row.try_get("url")?,
+        path: row.try_get("path")?,
+        disposition,
+        created_at: parse_ts(&created_at_str)?,
+        updated_at: parse_ts(&updated_at_str)?,
+    })
+}
+
+fn parse_host_row(row: &sqlx::any::AnyRow) -> Result<SourceHost> {
+    let disposition_str: String = row.try_get("disposition")?;
+    let disposition = disposition_str.parse()?;
+    let created_at_str: String = row.try_get("created_at")?;
+    let updated_at_str: String = row.try_get("updated_at")?;
+    Ok(SourceHost {
+        name: row.try_get("name")?,
+        source_id: row.try_get("source_id")?,
+        disposition,
+        created_at: parse_ts(&created_at_str)?,
+        updated_at: parse_ts(&updated_at_str)?,
+    })
+}
 
 #[async_trait]
-impl Db for SqlDb<Sqlite> {
+impl Db for SqlDb {
     async fn put_source(&self, source: Source) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO source (id, url, path, disposition, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                url = excluded.url,
-                path = excluded.path,
-                disposition = excluded.disposition,
-                updated_at = excluded.updated_at
-            "#,
-        )
-        .bind(&source.id)
-        .bind(&source.url)
-        .bind(&source.path)
-        .bind(source.disposition.as_str())
-        .bind(source.created_at)
-        .bind(source.updated_at)
-        .execute(&self.pool)
-        .await
-        .context("Failed to insert/update source")?;
+        let sql = match self.driver {
+            DbDriver::Sqlite => r#"
+                INSERT INTO source (id, url, path, disposition, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    url = excluded.url,
+                    path = excluded.path,
+                    disposition = excluded.disposition,
+                    updated_at = excluded.updated_at"#,
+            DbDriver::Postgres => r#"
+                INSERT INTO source (id, url, path, disposition, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT(id) DO UPDATE SET
+                    url = excluded.url,
+                    path = excluded.path,
+                    disposition = excluded.disposition,
+                    updated_at = excluded.updated_at"#,
+        };
+        sqlx::query(sql)
+            .bind(&source.id)
+            .bind(&source.url)
+            .bind(&source.path)
+            .bind(source.disposition.as_str())
+            .bind(fmt_ts(source.created_at))
+            .bind(fmt_ts(source.updated_at))
+            .execute(&self.pool)
+            .await
+            .context("Failed to insert/update source")?;
 
         Ok(())
     }
 
     async fn delete_source(&self, id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM host WHERE source_id = ?")
+        let (delete_hosts_sql, delete_source_sql) = match self.driver {
+            DbDriver::Sqlite => (
+                "DELETE FROM host WHERE source_id = ?",
+                "DELETE FROM source WHERE id = ?",
+            ),
+            DbDriver::Postgres => (
+                "DELETE FROM host WHERE source_id = $1",
+                "DELETE FROM source WHERE id = $1",
+            ),
+        };
+
+        sqlx::query(delete_hosts_sql)
             .bind(id)
             .execute(&self.pool)
             .await
             .context("Failed to delete hosts for source")?;
 
-        sqlx::query("DELETE FROM source WHERE id = ?")
+        sqlx::query(delete_source_sql)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -110,19 +180,7 @@ impl Db for SqlDb<Sqlite> {
         sqlx::query("SELECT id, url, path, disposition, created_at, updated_at FROM source")
             .fetch(&self.pool)
             .map_err(anyhow::Error::from)
-            .and_then(|row| async move {
-                let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)?;
-
-                Ok(Source {
-                    id: row.try_get("id")?,
-                    url: row.try_get("url")?,
-                    path: row.try_get("path")?,
-                    disposition,
-                    created_at: row.try_get("created_at")?,
-                    updated_at: row.try_get("updated_at")?,
-                })
-            })
+            .and_then(|row| async move { parse_source_row(&row) })
             .filter_map(|source| async move {
                 source
                     .inspect_err(|err| log::error!("Invalid source entry in database: {:?}", err))
@@ -131,53 +189,32 @@ impl Db for SqlDb<Sqlite> {
     }
 
     async fn get_all_sources_paginated(&self, limit: usize, offset: usize) -> Result<Vec<Source>> {
-        let rows = sqlx::query(
-            "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT ? OFFSET ?",
-        )
-        .bind(limit as i64)
-        .bind(offset as i64)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch sources")?;
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT ? OFFSET ?",
+            DbDriver::Postgres => "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT $1 OFFSET $2",
+        };
+        let rows = sqlx::query(sql)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch sources")?;
 
-        let mut sources = Vec::new();
-        for row in rows {
-            let disposition_str: String = row.try_get("disposition")?;
-            let disposition = HostDisposition::from_str(&disposition_str)?;
-
-            sources.push(Source {
-                id: row.try_get("id")?,
-                url: row.try_get("url")?,
-                path: row.try_get("path")?,
-                disposition,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
-            });
-        }
-
-        Ok(sources)
+        rows.iter().map(parse_source_row).collect()
     }
 
     async fn get_source(&self, id: &str) -> Result<Source> {
-        let row = sqlx::query(
-            "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .context("Failed to fetch source")?;
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = ?",
+            DbDriver::Postgres => "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = $1",
+        };
+        let row = sqlx::query(sql)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .context("Failed to fetch source")?;
 
-        let disposition_str: String = row.try_get("disposition")?;
-        let disposition = HostDisposition::from_str(&disposition_str)?;
-
-        Ok(Source {
-            id: row.try_get("id")?,
-            url: row.try_get("url")?,
-            path: row.try_get("path")?,
-            disposition,
-            created_at: row.try_get("created_at")?,
-            updated_at: row.try_get("updated_at")?,
-        })
+        parse_source_row(&row)
     }
 
     async fn put_hosts(&self, hosts: Vec<SourceHost>) -> Result<()> {
@@ -185,27 +222,48 @@ impl Db for SqlDb<Sqlite> {
             return Ok(());
         }
 
+        // Deduplicate by (name, source_id) — Postgres rejects an ON CONFLICT statement
+        // that targets the same row twice within a single INSERT.
+        let mut seen = std::collections::HashSet::new();
+        let hosts: Vec<SourceHost> = hosts
+            .into_iter()
+            .filter(|h| seen.insert((h.name.clone(), h.source_id.clone())))
+            .collect();
+
         for chunk in hosts.chunks(100) {
-            let mut query_builder = QueryBuilder::new(
-                "INSERT INTO host (name, source_id, disposition, created_at, updated_at) ",
+            let values = match self.driver {
+                DbDriver::Sqlite => {
+                    vec!["(?, ?, ?, ?, ?)"; chunk.len()].join(", ")
+                }
+                DbDriver::Postgres => {
+                    (0..chunk.len())
+                        .map(|i| {
+                            let b = i * 5 + 1;
+                            format!("(${}, ${}, ${}, ${}, ${})", b, b + 1, b + 2, b + 3, b + 4)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            };
+            let sql = format!(
+                "INSERT INTO host (name, source_id, disposition, created_at, updated_at) \
+                 VALUES {} \
+                 ON CONFLICT(name, source_id) DO UPDATE SET \
+                     disposition = excluded.disposition, \
+                     updated_at = excluded.updated_at",
+                values
             );
 
-            query_builder.push_values(chunk, |mut b, host| {
-                b.push_bind(&host.name)
-                    .push_bind(&host.source_id)
-                    .push_bind(host.disposition.as_str())
-                    .push_bind(host.created_at)
-                    .push_bind(host.updated_at);
-            });
-
-            query_builder.push(
-                " ON CONFLICT(name, source_id) DO UPDATE SET \
-                 disposition = excluded.disposition, \
-                 updated_at = excluded.updated_at",
-            );
-
-            query_builder
-                .build()
+            let mut query = sqlx::query(&sql);
+            for host in chunk {
+                query = query
+                    .bind(&host.name)
+                    .bind(&host.source_id)
+                    .bind(host.disposition.as_str())
+                    .bind(fmt_ts(host.created_at))
+                    .bind(fmt_ts(host.updated_at));
+            }
+            query
                 .execute(&self.pool)
                 .await
                 .context("Failed to insert/update hosts")?;
@@ -215,7 +273,11 @@ impl Db for SqlDb<Sqlite> {
     }
 
     async fn delete_host(&self, name: &str, source_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM host WHERE name = ? AND source_id = ?")
+        let sql = match self.driver {
+            DbDriver::Sqlite => "DELETE FROM host WHERE name = ? AND source_id = ?",
+            DbDriver::Postgres => "DELETE FROM host WHERE name = $1 AND source_id = $2",
+        };
+        sqlx::query(sql)
             .bind(name)
             .bind(source_id)
             .execute(&self.pool)
@@ -227,24 +289,18 @@ impl Db for SqlDb<Sqlite> {
 
     fn get_hosts_by_source(&self, source_id: &str) -> impl Stream<Item = SourceHost> {
         let source_id = source_id.to_string();
-        sqlx::query("SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ?")
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ?",
+            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1",
+        };
+        sqlx::query(sql)
             .bind(source_id)
             .fetch(&self.pool)
             .map_err(anyhow::Error::from)
-            .and_then(|row| async move {
-                let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)?;
-
-                Ok(SourceHost {
-                    name: row.try_get("name")?,
-                    source_id: row.try_get("source_id")?,
-                    disposition,
-                    created_at: row.try_get("created_at")?,
-                    updated_at: row.try_get("updated_at")?,
-                })
-            })
+            .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err)).ok()
+                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                    .ok()
             })
     }
 
@@ -254,55 +310,37 @@ impl Db for SqlDb<Sqlite> {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<SourceHost>> {
-        let rows = sqlx::query(
-            "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? LIMIT ? OFFSET ?",
-        )
-        .bind(source_id)
-        .bind(limit as i64)
-        .bind(offset as i64)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch hosts")?;
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? LIMIT ? OFFSET ?",
+            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 LIMIT $2 OFFSET $3",
+        };
+        let rows = sqlx::query(sql)
+            .bind(source_id)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch hosts")?;
 
-        let mut hosts = Vec::new();
-        for row in rows {
-            let disposition_str: String = row.try_get("disposition")?;
-            let disposition = HostDisposition::from_str(&disposition_str)?;
-
-            hosts.push(SourceHost {
-                name: row.try_get("name")?,
-                source_id: row.try_get("source_id")?,
-                disposition,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
-            });
-        }
-
-        Ok(hosts)
+        rows.iter().map(parse_host_row).collect()
     }
 
     fn get_hosts_by_disposition(
         &self,
         disposition: HostDisposition,
     ) -> impl Stream<Item = SourceHost> {
-        sqlx::query("SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = ?")
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = ?",
+            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = $1",
+        };
+        sqlx::query(sql)
             .bind(disposition.as_str())
             .fetch(&self.pool)
             .map_err(anyhow::Error::from)
-            .and_then(|row| async move {
-                let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)?;
-
-                Ok(SourceHost {
-                    name: row.try_get("name")?,
-                    source_id: row.try_get("source_id")?,
-                    disposition,
-                    created_at: row.try_get("created_at")?,
-                    updated_at: row.try_get("updated_at")?,
-                })
-            })
+            .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err)).ok()
+                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                    .ok()
             })
     }
 
@@ -312,56 +350,42 @@ impl Db for SqlDb<Sqlite> {
         updated_before: DateTime<Utc>,
     ) -> impl Stream<Item = SourceHost> {
         let source_id = source_id.to_string();
-        sqlx::query("SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? AND updated_at < ?")
+        let updated_before_str = fmt_ts(updated_before);
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? AND updated_at < ?",
+            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 AND updated_at < $2",
+        };
+        sqlx::query(sql)
             .bind(source_id)
-            .bind(updated_before)
+            .bind(updated_before_str)
             .fetch(&self.pool)
             .map_err(anyhow::Error::from)
-            .and_then(|row| async move {
-                let disposition_str: String = row.try_get("disposition")?;
-                let disposition = HostDisposition::from_str(&disposition_str)?;
-
-                Ok(SourceHost {
-                    name: row.try_get("name")?,
-                    source_id: row.try_get("source_id")?,
-                    disposition,
-                    created_at: row.try_get("created_at")?,
-                    updated_at: row.try_get("updated_at")?,
-                })
-            })
+            .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err)).ok()
+                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                    .ok()
             })
     }
 
     fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> {
         let name = name.to_string();
-        sqlx::query(
-            "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = ?",
-        )
-        .bind(name)
-        .fetch(&self.pool)
-        .map_err(anyhow::Error::from)
-        .and_then(|row| async move {
-            let disposition_str: String = row.try_get("disposition")?;
-            let disposition = HostDisposition::from_str(&disposition_str)?;
-
-            Ok(SourceHost {
-                name: row.try_get("name")?,
-                source_id: row.try_get("source_id")?,
-                disposition,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
+        let sql = match self.driver {
+            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = ?",
+            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = $1",
+        };
+        sqlx::query(sql)
+            .bind(name)
+            .fetch(&self.pool)
+            .map_err(anyhow::Error::from)
+            .and_then(|row| async move { parse_host_row(&row) })
+            .filter_map(|host| async move {
+                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                    .ok()
             })
-        })
-        .filter_map(|host| async move {
-            host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
-                .ok()
-        })
     }
 }
 
-impl BlocklistProvider for SqlDb<Sqlite> {
+impl BlocklistProvider for SqlDb {
     fn get_blocked_hosts(&self) -> impl Stream<Item = SourceHost> {
         self.get_hosts_by_disposition(HostDisposition::Block)
     }
@@ -375,37 +399,49 @@ impl BlocklistProvider for SqlDb<Sqlite> {
     }
 }
 
-async fn init_db<'e, E: Executor<'e> + Copy>(executor: E) -> Result<()> {
-    sqlx::raw_sql(
-        r#"
+async fn init_db(pool: &AnyPool, driver: DbDriver) -> Result<()> {
+    let sql = match driver {
+        DbDriver::Sqlite => r#"
             CREATE TABLE IF NOT EXISTS source (
                 id VARCHAR(24) PRIMARY KEY,
                 url VARCHAR,
                 path VARCHAR,
                 disposition VARCHAR(16) NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );"#,
-    )
-    .execute(executor)
-    .await
-    .context("Failed to init source table")?;
-
-    sqlx::raw_sql(
-        r#"
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS host (
                 name VARCHAR(255) NOT NULL,
                 source_id VARCHAR(24) NOT NULL,
                 disposition VARCHAR(16) NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 PRIMARY KEY (name, source_id),
                 FOREIGN KEY(source_id) REFERENCES source(id)
             );"#,
-    )
-    .execute(executor)
-    .await
-    .context("Failed to init host table")?;
+        DbDriver::Postgres => r#"
+            CREATE TABLE IF NOT EXISTS source (
+                id VARCHAR(24) PRIMARY KEY,
+                url VARCHAR,
+                path VARCHAR,
+                disposition VARCHAR(16) NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS host (
+                name VARCHAR(255) NOT NULL,
+                source_id VARCHAR(24) NOT NULL,
+                disposition VARCHAR(16) NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (name, source_id),
+                FOREIGN KEY(source_id) REFERENCES source(id)
+            );"#,
+    };
+    sqlx::raw_sql(sql)
+        .execute(pool)
+        .await
+        .context("Failed to init tables")?;
 
     Ok(())
 }

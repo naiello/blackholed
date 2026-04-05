@@ -41,9 +41,9 @@ async fn main() -> Result<()> {
     );
 
     let db = Arc::new(
-        SqlDb::new_sqlite(&config.database.path)
+        SqlDb::new(&config.database)
             .await
-            .context("Failed to initialize SQLite")?,
+            .context("Failed to initialize database")?,
     );
 
     let blocklist = Arc::new(

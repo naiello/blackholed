@@ -2,8 +2,15 @@
 # Copy this file to /etc/blackholed/blackholed.toml or ./blackholed.toml
 
 [database]
-# Path to the SQLite database file
-path = "/var/db/blackhole/blackholed.db"
+# Database driver: "sqlite" (default) or "postgres"
+driver = "postgres"
+# For sqlite: path to the database file
+# For postgres: connection string (e.g. "postgres://user:password@localhost/blackholed")
+url = "postgres://postgres:password@localhost/blackhole"
+# The connection string can also be passed via environment variable to avoid
+# storing credentials in the config file:
+#   BLACKHOLE_DATABASE__DRIVER=postgres
+#   BLACKHOLE_DATABASE__URL=postgres://user:password@localhost/blackholed
 
 [api]
 # Port for the management API and web UI
