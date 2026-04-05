@@ -8,8 +8,8 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::{
-    routing::{delete, get, post},
     Router,
+    routing::{delete, get, post},
 };
 use tokio_graceful::ShutdownGuard;
 use tokio_util::task::AbortOnDropHandle;

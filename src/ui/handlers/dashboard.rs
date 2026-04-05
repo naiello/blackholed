@@ -3,10 +3,10 @@ use std::net::{IpAddr, SocketAddr};
 use anyhow;
 use askama::Template;
 use axum::{
+    Form,
     extract::{ConnectInfo, Query, State},
     http::HeaderMap,
     response::{Html, IntoResponse, Response},
-    Form,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -14,7 +14,7 @@ use serde::Deserialize;
 use crate::{
     api::{
         error::ApiError,
-        model::{encode_next_token, BlockEventResponse, PaginatedResponse, PAGE_SIZE},
+        model::{BlockEventResponse, PAGE_SIZE, PaginatedResponse, encode_next_token},
         state::ApiState,
         validation::validate_and_normalize_domain,
     },

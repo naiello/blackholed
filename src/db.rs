@@ -60,7 +60,9 @@ impl SqlDb {
             .await
             .context("Failed to create database pool")?;
 
-        init_db(&pool, driver).await.context("Failed to init tables")?;
+        init_db(&pool, driver)
+            .await
+            .context("Failed to init tables")?;
 
         Ok(SqlDb { pool, driver })
     }
@@ -118,22 +120,26 @@ fn parse_host_row(row: &sqlx::any::AnyRow) -> Result<SourceHost> {
 impl Db for SqlDb {
     async fn put_source(&self, source: Source) -> Result<()> {
         let sql = match self.driver {
-            DbDriver::Sqlite => r#"
+            DbDriver::Sqlite => {
+                r#"
                 INSERT INTO source (id, url, path, disposition, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     url = excluded.url,
                     path = excluded.path,
                     disposition = excluded.disposition,
-                    updated_at = excluded.updated_at"#,
-            DbDriver::Postgres => r#"
+                    updated_at = excluded.updated_at"#
+            }
+            DbDriver::Postgres => {
+                r#"
                 INSERT INTO source (id, url, path, disposition, created_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT(id) DO UPDATE SET
                     url = excluded.url,
                     path = excluded.path,
                     disposition = excluded.disposition,
-                    updated_at = excluded.updated_at"#,
+                    updated_at = excluded.updated_at"#
+            }
         };
         sqlx::query(sql)
             .bind(&source.id)
@@ -190,8 +196,12 @@ impl Db for SqlDb {
 
     async fn get_all_sources_paginated(&self, limit: usize, offset: usize) -> Result<Vec<Source>> {
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT ? OFFSET ?",
-            DbDriver::Postgres => "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT $1 OFFSET $2",
+            DbDriver::Sqlite => {
+                "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT ? OFFSET ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT id, url, path, disposition, created_at, updated_at FROM source LIMIT $1 OFFSET $2"
+            }
         };
         let rows = sqlx::query(sql)
             .bind(limit as i64)
@@ -205,8 +215,12 @@ impl Db for SqlDb {
 
     async fn get_source(&self, id: &str) -> Result<Source> {
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = ?",
-            DbDriver::Postgres => "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = $1",
+            DbDriver::Sqlite => {
+                "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT id, url, path, disposition, created_at, updated_at FROM source WHERE id = $1"
+            }
         };
         let row = sqlx::query(sql)
             .bind(id)
@@ -232,18 +246,14 @@ impl Db for SqlDb {
 
         for chunk in hosts.chunks(100) {
             let values = match self.driver {
-                DbDriver::Sqlite => {
-                    vec!["(?, ?, ?, ?, ?)"; chunk.len()].join(", ")
-                }
-                DbDriver::Postgres => {
-                    (0..chunk.len())
-                        .map(|i| {
-                            let b = i * 5 + 1;
-                            format!("(${}, ${}, ${}, ${}, ${})", b, b + 1, b + 2, b + 3, b + 4)
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }
+                DbDriver::Sqlite => vec!["(?, ?, ?, ?, ?)"; chunk.len()].join(", "),
+                DbDriver::Postgres => (0..chunk.len())
+                    .map(|i| {
+                        let b = i * 5 + 1;
+                        format!("(${}, ${}, ${}, ${}, ${})", b, b + 1, b + 2, b + 3, b + 4)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
             };
             let sql = format!(
                 "INSERT INTO host (name, source_id, disposition, created_at, updated_at) \
@@ -290,8 +300,12 @@ impl Db for SqlDb {
     fn get_hosts_by_source(&self, source_id: &str) -> impl Stream<Item = SourceHost> {
         let source_id = source_id.to_string();
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ?",
-            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1",
+            DbDriver::Sqlite => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1"
+            }
         };
         sqlx::query(sql)
             .bind(source_id)
@@ -311,8 +325,12 @@ impl Db for SqlDb {
         offset: usize,
     ) -> Result<Vec<SourceHost>> {
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? LIMIT ? OFFSET ?",
-            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 LIMIT $2 OFFSET $3",
+            DbDriver::Sqlite => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? LIMIT ? OFFSET ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 LIMIT $2 OFFSET $3"
+            }
         };
         let rows = sqlx::query(sql)
             .bind(source_id)
@@ -330,8 +348,12 @@ impl Db for SqlDb {
         disposition: HostDisposition,
     ) -> impl Stream<Item = SourceHost> {
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = ?",
-            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = $1",
+            DbDriver::Sqlite => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE disposition = $1"
+            }
         };
         sqlx::query(sql)
             .bind(disposition.as_str())
@@ -352,8 +374,12 @@ impl Db for SqlDb {
         let source_id = source_id.to_string();
         let updated_before_str = fmt_ts(updated_before);
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? AND updated_at < ?",
-            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 AND updated_at < $2",
+            DbDriver::Sqlite => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = ? AND updated_at < ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE source_id = $1 AND updated_at < $2"
+            }
         };
         sqlx::query(sql)
             .bind(source_id)
@@ -370,8 +396,12 @@ impl Db for SqlDb {
     fn get_host(&self, name: &str) -> impl Stream<Item = SourceHost> {
         let name = name.to_string();
         let sql = match self.driver {
-            DbDriver::Sqlite => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = ?",
-            DbDriver::Postgres => "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = $1",
+            DbDriver::Sqlite => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = ?"
+            }
+            DbDriver::Postgres => {
+                "SELECT name, source_id, disposition, created_at, updated_at FROM host WHERE name = $1"
+            }
         };
         sqlx::query(sql)
             .bind(name)
@@ -401,7 +431,8 @@ impl BlocklistProvider for SqlDb {
 
 async fn init_db(pool: &AnyPool, driver: DbDriver) -> Result<()> {
     let sql = match driver {
-        DbDriver::Sqlite => r#"
+        DbDriver::Sqlite => {
+            r#"
             CREATE TABLE IF NOT EXISTS source (
                 id VARCHAR(24) PRIMARY KEY,
                 url VARCHAR,
@@ -418,8 +449,10 @@ async fn init_db(pool: &AnyPool, driver: DbDriver) -> Result<()> {
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (name, source_id),
                 FOREIGN KEY(source_id) REFERENCES source(id)
-            );"#,
-        DbDriver::Postgres => r#"
+            );"#
+        }
+        DbDriver::Postgres => {
+            r#"
             CREATE TABLE IF NOT EXISTS source (
                 id VARCHAR(24) PRIMARY KEY,
                 url VARCHAR,
@@ -436,7 +469,8 @@ async fn init_db(pool: &AnyPool, driver: DbDriver) -> Result<()> {
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (name, source_id),
                 FOREIGN KEY(source_id) REFERENCES source(id)
-            );"#,
+            );"#
+        }
     };
     sqlx::raw_sql(sql)
         .execute(pool)

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, pin::Pin, sync::Arc, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::StreamExt;
 use notify::{EventKind, RecommendedWatcher, Watcher};
@@ -142,10 +142,7 @@ fn derive_source_id(path: &std::path::Path, disposition: HostDisposition) -> Str
 }
 
 /// Scan configured directories for list files.
-fn scan_directories(
-    blocklist_dirs: &[PathBuf],
-    allowlist_dirs: &[PathBuf],
-) -> Vec<DiscoveredFile> {
+fn scan_directories(blocklist_dirs: &[PathBuf], allowlist_dirs: &[PathBuf]) -> Vec<DiscoveredFile> {
     let mut files = Vec::new();
 
     for (dirs, disposition) in [
@@ -164,11 +161,10 @@ fn scan_directories(
                         }
 
                         // Skip dotfiles
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if name.starts_with('.') {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                            && name.starts_with('.') {
                                 continue;
                             }
-                        }
 
                         files.push(DiscoveredFile { path, disposition });
                     }
@@ -210,9 +206,7 @@ fn setup_file_watcher(
         move |res: notify::Result<notify::Event>| {
             if let Ok(event) = res {
                 match event.kind {
-                    EventKind::Create(_)
-                    | EventKind::Modify(_)
-                    | EventKind::Remove(_) => {
+                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
                         let _ = raw_tx.try_send(());
                     }
                     _ => {}
@@ -322,8 +316,10 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         let existing_file_sources: Vec<&Source> =
             all_sources.iter().filter(|s| s.is_file_managed()).collect();
 
-        let existing_ids: std::collections::HashSet<&str> =
-            existing_file_sources.iter().map(|s| s.id.as_str()).collect();
+        let existing_ids: std::collections::HashSet<&str> = existing_file_sources
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
 
         // Delete sources whose files no longer exist on disk
         for source in &existing_file_sources {
@@ -333,7 +329,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                     source.id
                 );
                 if let Err(err) = self.db.delete_source(&source.id).await {
-                    log::error!("Failed to delete orphaned file source {}: {:?}", source.id, err);
+                    log::error!(
+                        "Failed to delete orphaned file source {}: {:?}",
+                        source.id,
+                        err
+                    );
                 }
             }
         }
@@ -354,7 +354,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                     created_at: now,
                     updated_at: now,
                 };
-                log::info!("Creating new file source: {} from {}", id, file.path.display());
+                log::info!(
+                    "Creating new file source: {} from {}",
+                    id,
+                    file.path.display()
+                );
                 if let Err(err) = self.db.put_source(source.clone()).await {
                     log::error!("Failed to create file source {}: {:?}", id, err);
                     continue;
@@ -378,15 +382,14 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         if !initial && sources_to_refresh.is_empty() {
             // Even if no new sources, some file content may have changed
             for (id, file) in &expected {
-                if existing_ids.contains(id.as_str()) {
-                    if let Some(existing) = existing_file_sources.iter().find(|s| s.id == *id) {
+                if existing_ids.contains(id.as_str())
+                    && let Some(existing) = existing_file_sources.iter().find(|s| s.id == *id) {
                         let updated = Source {
                             path: Some(file.path.to_string_lossy().to_string()),
                             ..(*existing).clone()
                         };
                         sources_to_refresh.push(updated);
                     }
-                }
             }
         }
 
@@ -394,10 +397,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             return Ok(());
         }
 
-        log::info!(
-            "Refreshing {} file sources",
-            sources_to_refresh.len()
-        );
+        log::info!("Refreshing {} file sources", sources_to_refresh.len());
 
         let refresh_time = Utc::now();
         let mut any_success = false;
@@ -624,13 +624,22 @@ mod tests {
     #[test]
     fn test_derive_source_id() {
         let path = PathBuf::from("/etc/blackhole/blocklist.d/ads.txt");
-        assert_eq!(derive_source_id(&path, HostDisposition::Block), "file-block-ads-txt");
+        assert_eq!(
+            derive_source_id(&path, HostDisposition::Block),
+            "file-block-ads-txt"
+        );
 
         let path = PathBuf::from("/etc/blackhole/allowlist.d/personal.list");
-        assert_eq!(derive_source_id(&path, HostDisposition::Allow), "file-allow-personal-list");
+        assert_eq!(
+            derive_source_id(&path, HostDisposition::Allow),
+            "file-allow-personal-list"
+        );
 
         let path = PathBuf::from("/some/path/my--weird...file.txt");
-        assert_eq!(derive_source_id(&path, HostDisposition::Block), "file-block-my-weird-file-txt");
+        assert_eq!(
+            derive_source_id(&path, HostDisposition::Block),
+            "file-block-my-weird-file-txt"
+        );
     }
 
     #[test]

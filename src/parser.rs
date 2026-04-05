@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use hickory_server::proto::rr::LowerName;
 use std::str::FromStr;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};

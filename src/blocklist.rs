@@ -4,8 +4,8 @@ use std::{
     net::IpAddr,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -13,10 +13,10 @@ use std::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{future::join_all, Stream, StreamExt};
+use futures::{Stream, StreamExt, future::join_all};
 use tokio::{
     select,
-    sync::{broadcast, RwLock},
+    sync::{RwLock, broadcast},
     time,
 };
 

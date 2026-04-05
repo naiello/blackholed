@@ -1,10 +1,10 @@
 use anyhow;
 use askama::Template;
 use axum::{
+    Form,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
-    Form,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -13,7 +13,7 @@ use crate::{
     api::{
         error::ApiError,
         handlers::sources::source_to_response,
-        model::{encode_next_token, HostResponse, PaginatedResponse, PAGE_SIZE},
+        model::{HostResponse, PAGE_SIZE, PaginatedResponse, encode_next_token},
         state::ApiState,
         validation::{validate_and_normalize_domain, validate_source_id},
     },

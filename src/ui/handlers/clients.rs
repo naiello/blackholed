@@ -14,7 +14,7 @@ use crate::{
     api::{
         error::ApiError,
         model::{
-            encode_next_token, BlockEventResponse, ClientResponse, PaginatedResponse, PAGE_SIZE,
+            BlockEventResponse, ClientResponse, PAGE_SIZE, PaginatedResponse, encode_next_token,
         },
         state::ApiState,
         validation::validate_and_normalize_domain,

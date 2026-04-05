@@ -2,8 +2,8 @@ pub mod handlers;
 pub mod templates;
 
 use axum::{
-    routing::{delete, get, post},
     Router,
+    routing::{delete, get, post},
 };
 
 use crate::{

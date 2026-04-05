@@ -1,17 +1,17 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use hickory_server::{
+    ServerFuture,
     authority::{Catalog, ZoneType},
     resolver::{
-        config::{ResolveHosts, ResolverOpts},
         Name,
+        config::{ResolveHosts, ResolverOpts},
     },
     store::{
         file::{FileAuthority, FileConfig},
         forwarder::{ForwardAuthority, ForwardConfig},
     },
-    ServerFuture,
 };
 use tokio::net::{TcpSocket, UdpSocket};
 use tokio::select;
