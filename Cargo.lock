@@ -305,6 +305,7 @@ dependencies = [
  "tokio-graceful",
  "tokio-util",
  "tower-http",
+ "url",
 ]
 
 [[package]]

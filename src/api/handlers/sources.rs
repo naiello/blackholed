@@ -9,7 +9,7 @@ use crate::{
         error::{ApiError, ApiResult},
         model::*,
         state::ApiState,
-        validation::validate_source_id,
+        validation::{validate_source_id, validate_source_url},
     },
     blocklist::BlocklistProvider,
     db::Db,
@@ -51,7 +51,9 @@ where
         ));
     }
 
-    if req.url.is_none() {
+    if let Some(url) = &req.url {
+        validate_source_url(url)?;
+    } else {
         log::info!("Creating manually-managed source: {}", req.id);
     }
 

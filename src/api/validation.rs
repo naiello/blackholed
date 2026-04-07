@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
+use url::Url;
 
 use crate::api::error::ApiError;
 
@@ -9,6 +10,18 @@ static SOURCE_ID_RE: LazyLock<Regex> =
 
 static DOMAIN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*\.)?[a-zA-Z0-9.-]+\.$").expect("Regex must compile"));
+
+/// Validates a source URL — only `http` and `https` schemes are permitted
+pub fn validate_source_url(url: &str) -> Result<(), ApiError> {
+    let parsed = Url::parse(url)
+        .map_err(|_| ApiError::BadRequest("Source URL is not a valid URL".to_string()))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(ApiError::BadRequest(
+            "Source URL must use http or https".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 /// Validates a source ID
 /// - Must contain only alphanumeric characters and hyphens
