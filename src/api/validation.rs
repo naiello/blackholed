@@ -1,6 +1,14 @@
+use std::sync::LazyLock;
+
 use regex::Regex;
 
 use crate::api::error::ApiError;
+
+static SOURCE_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9-]+$").expect("Regex must compile"));
+
+static DOMAIN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\*\.)?[a-zA-Z0-9.-]+\.$").expect("Regex must compile"));
 
 /// Validates a source ID
 /// - Must contain only alphanumeric characters and hyphens
@@ -12,8 +20,7 @@ pub fn validate_source_id(id: &str) -> Result<(), ApiError> {
         ));
     }
 
-    let re = Regex::new(r"^[a-zA-Z0-9-]+$").unwrap();
-    if !re.is_match(id) {
+    if !SOURCE_ID_RE.is_match(id) {
         return Err(ApiError::BadRequest(
             "Source ID must contain only alphanumeric characters and hyphens".to_string(),
         ));
@@ -56,8 +63,7 @@ pub fn validate_and_normalize_domain(name: &str) -> Result<String, ApiError> {
 
     // Basic validation: check for invalid characters
     // DNS names can only contain alphanumeric, dots, hyphens, and wildcards
-    let re = Regex::new(r"^(\*\.)?[a-zA-Z0-9.-]+\.$").unwrap();
-    if !re.is_match(&normalized) {
+    if !DOMAIN_RE.is_match(&normalized) {
         return Err(ApiError::BadRequest(
             "Domain name contains invalid characters".to_string(),
         ));
