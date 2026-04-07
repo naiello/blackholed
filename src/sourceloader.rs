@@ -10,7 +10,7 @@ use tokio::{
     time,
 };
 use tokio_graceful::ShutdownGuard;
-use tokio_util::task::AbortOnDropHandle;
+use tokio_util::{io::StreamReader, task::AbortOnDropHandle};
 
 use crate::{
     blocklist::{BlocklistAuthority, BlocklistProvider},
@@ -642,14 +642,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                 bail!("HTTP request failed with status: {}", response.status());
             }
 
-            let bytes = response
-                .bytes()
-                .await
-                .context("Failed to read response body")?;
+            let stream = response
+                .bytes_stream()
+                .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
 
-            Ok(Box::pin(BufReader::new(std::io::Cursor::new(
-                bytes.to_vec(),
-            ))))
+            Ok(Box::pin(BufReader::new(StreamReader::new(stream))))
         } else if let Some(path) = &source.path {
             log::debug!("Loading source from file: {}", path);
 
