@@ -21,6 +21,7 @@ notify = "7"
 openssl = { version = "0.10.68", features = ["vendored"] }
 pretty_env_logger = "0.5.0"
 redis = { version = "1.0.2", features = ["tokio-comp"] }
+rslock = { version = "0.7", default-features = false, features = ["tokio-comp"] }
 regex = "1.10.2"
 reqwest = { version = "0.11.20", features = ["rustls-tls"] }
 rustls = "0.23.36"

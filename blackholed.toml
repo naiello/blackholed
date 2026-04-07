@@ -9,8 +9,8 @@ driver = "postgres"
 url = "postgres://postgres:password@localhost/blackhole"
 # The connection string can also be passed via environment variable to avoid
 # storing credentials in the config file:
-#   BLACKHOLE_DATABASE__DRIVER=postgres
-#   BLACKHOLE_DATABASE__URL=postgres://user:password@localhost/blackholed
+#   BLACKHOLE__DATABASE__DRIVER=postgres
+#   BLACKHOLE__DATABASE__URL=postgres://user:password@localhost/blackholed
 
 [api]
 # Port for the management API and web UI

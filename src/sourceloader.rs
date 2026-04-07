@@ -19,6 +19,8 @@ use crate::{
     types::Shared,
 };
 
+const RELOAD_LOCK_TTL: Duration = Duration::from_secs(600); // 10 minutes
+
 pub struct SourceLoader {
     _task: AbortOnDropHandle<()>,
     _watcher_task: Option<AbortOnDropHandle<()>>,
@@ -28,6 +30,7 @@ pub struct SourceLoader {
 struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
     db: Arc<DB>,
     blocklist_authority: Arc<BlocklistAuthority<BP>>,
+    lock_manager: rslock::LockManager,
     run_interval: Duration,
     stale_age: TimeDelta,
     reload_rx: mpsc::Receiver<String>,
@@ -50,6 +53,7 @@ impl SourceLoader {
         blocklist_authority: Arc<BlocklistAuthority<BP>>,
         blocklist_dirs: Vec<PathBuf>,
         allowlist_dirs: Vec<PathBuf>,
+        redis_url: String,
         shutdown: ShutdownGuard,
     ) -> Result<Self>
     where
@@ -67,9 +71,12 @@ impl SourceLoader {
             shutdown.clone(),
         );
 
+        let lock_manager = rslock::LockManager::new(vec![redis_url]);
+
         let task = SourceLoaderTask {
             db,
             blocklist_authority,
+            lock_manager,
             stale_age,
             run_interval: run_interval.to_std().context("Invalid run interval")?,
             reload_rx,
@@ -269,8 +276,10 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             log::error!("Error during initial source refresh: {:?}", err);
         }
 
-        // Then enter interval loop
+        // Then enter interval loop — tick() fires immediately, so consume the first tick
+        // to avoid a duplicate refresh right after the explicit startup call above.
         let mut interval = time::interval(self.run_interval);
+        interval.tick().await;
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -404,10 +413,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
 
         for source in sources_to_refresh {
             match self.refresh(source.clone(), refresh_time).await {
-                Ok(_) => {
+                Ok(true) => {
                     any_success = true;
                     log::info!("Successfully refreshed file source: {}", source.id);
                 }
+                Ok(false) => {}
                 Err(err) => {
                     log::error!("Failed to refresh file source {}: {:?}", source.id, err);
                 }
@@ -445,12 +455,19 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         // Perform refresh
         let refresh_time = Utc::now();
         match self.refresh(source.clone(), refresh_time).await {
-            Ok(_) => {
+            Ok(true) => {
                 log::info!(
                     "Successfully completed manual reload for source: {}",
                     source_id
                 );
                 self.blocklist_authority.reload().await;
+                Ok(())
+            }
+            Ok(false) => {
+                log::info!(
+                    "Source {} reload lock held by another node, skipping manual reload",
+                    source_id
+                );
                 Ok(())
             }
             Err(err) => {
@@ -490,10 +507,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
 
         for source in sources_to_refresh {
             match self.refresh(source.clone(), start_time).await {
-                Ok(_) => {
+                Ok(true) => {
                     successful_refreshes += 1;
                     log::info!("Successfully refreshed source: {}", source.id);
                 }
+                Ok(false) => {}
                 Err(err) => {
                     failed_refreshes += 1;
                     log::error!("Failed to refresh source {}: {:?}", source.id, err);
@@ -514,7 +532,25 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         Ok(())
     }
 
-    async fn refresh(&self, source: Source, refresh_time: DateTime<Utc>) -> Result<()> {
+    /// Refresh a single source. Returns `Ok(true)` if the refresh ran, `Ok(false)` if another
+    /// node holds the per-source lock and the work was skipped.
+    async fn refresh(&self, source: Source, refresh_time: DateTime<Utc>) -> Result<bool> {
+        let lock_key = format!("blackhole:source-reload:{}", source.id);
+        let lock = match self
+            .lock_manager
+            .lock(lock_key.as_bytes(), RELOAD_LOCK_TTL)
+            .await
+        {
+            Ok(lock) => lock,
+            Err(_) => {
+                log::info!(
+                    "Source {} reload lock held by another node, skipping",
+                    source.id
+                );
+                return Ok(false);
+            }
+        };
+
         log::debug!("Refreshing source: {}", source.id);
 
         let content = self
@@ -577,7 +613,8 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             .await
             .context("Failed to update source timestamp")?;
 
-        Ok(())
+        self.lock_manager.unlock(&lock).await;
+        Ok(true)
     }
 
     async fn fetch_content(

@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
 
     let shutdown = Shutdown::default();
 
+    let redis_url = config.eventstore.endpoint.clone();
     let eventstore = Arc::new(
         RedisEventStore::new(config.eventstore, shutdown.guard())
             .await
@@ -80,6 +81,7 @@ async fn main() -> Result<()> {
             blocklist.clone(),
             config.sourceloader.blocklist_dirs,
             config.sourceloader.allowlist_dirs,
+            redis_url,
             shutdown.guard(),
         )
         .await
