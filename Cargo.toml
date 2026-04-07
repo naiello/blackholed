@@ -14,7 +14,6 @@ chrono = { version = "0.4.43", features = ["serde"] }
 config = "0.13.3"
 futures = "0.3.28"
 hickory-server = { version = "0.25.2", features = ["resolver", "rustls-platform-verifier", "tls-aws-lc-rs"] }
-lazy_static = "1.4.0"
 log = "0.4.20"
 nix = { version = "0.27.1", features = ["signal"] }
 notify = "7"

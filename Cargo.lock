@@ -287,7 +287,6 @@ dependencies = [
  "config",
  "futures",
  "hickory-server",
- "lazy_static",
  "log",
  "nix",
  "notify",
