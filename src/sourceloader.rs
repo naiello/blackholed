@@ -31,6 +31,7 @@ struct SourceLoaderTask<DB: Db, BP: BlocklistProvider> {
     db: Arc<DB>,
     blocklist_authority: Arc<BlocklistAuthority<BP>>,
     lock_manager: rslock::LockManager,
+    http_client: reqwest::Client,
     run_interval: Duration,
     stale_age: TimeDelta,
     reload_rx: mpsc::Receiver<String>,
@@ -73,10 +74,16 @@ impl SourceLoader {
 
         let lock_manager = rslock::LockManager::new(vec![redis_url]);
 
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("Failed to build HTTP client")?;
+
         let task = SourceLoaderTask {
             db,
             blocklist_authority,
             lock_manager,
+            http_client,
             stale_age,
             run_interval: run_interval.to_std().context("Invalid run interval")?,
             reload_rx,
@@ -624,7 +631,10 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         if let Some(url) = &source.url {
             log::debug!("Fetching source from URL: {}", url);
 
-            let response = reqwest::get(url)
+            let response = self
+                .http_client
+                .get(url)
+                .send()
                 .await
                 .with_context(|| format!("Failed to download from URL: {}", url))?;
 
