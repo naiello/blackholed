@@ -246,14 +246,30 @@ impl Db for SqlDb {
 
         for chunk in hosts.chunks(100) {
             let values = match self.driver {
-                DbDriver::Sqlite => vec!["(?, ?, ?, ?, ?)"; chunk.len()].join(", "),
-                DbDriver::Postgres => (0..chunk.len())
-                    .map(|i| {
+                DbDriver::Sqlite => {
+                    let tuple = "(?, ?, ?, ?, ?)";
+                    let mut s = String::with_capacity(chunk.len() * (tuple.len() + 2));
+                    for i in 0..chunk.len() {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
+                        s.push_str(tuple);
+                    }
+                    s
+                }
+                DbDriver::Postgres => {
+                    let mut s = String::with_capacity(chunk.len() * 25);
+                    for i in 0..chunk.len() {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
                         let b = i * 5 + 1;
-                        format!("(${}, ${}, ${}, ${}, ${})", b, b + 1, b + 2, b + 3, b + 4)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                        use std::fmt::Write;
+                        write!(s, "(${b}, ${}, ${}, ${}, ${})", b + 1, b + 2, b + 3, b + 4)
+                            .unwrap();
+                    }
+                    s
+                }
             };
             let sql = format!(
                 "INSERT INTO host (name, source_id, disposition, created_at, updated_at) \
