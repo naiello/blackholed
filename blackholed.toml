@@ -3,10 +3,11 @@
 
 [database]
 # Database driver: "sqlite" (default) or "postgres"
-driver = "postgres"
+driver = "sqlite"
+url = "/var/db/blackhole/blackholed.db"
 # For sqlite: path to the database file
 # For postgres: connection string (e.g. "postgres://user:password@localhost/blackholed")
-url = "postgres://postgres:password@localhost/blackhole"
+# url = "postgres://postgres:password@localhost/blackhole"
 # The connection string can also be passed via environment variable to avoid
 # storing credentials in the config file:
 #   BLACKHOLE__DATABASE__DRIVER=postgres
