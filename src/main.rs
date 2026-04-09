@@ -8,6 +8,7 @@ use blackholed::{
     db::{Db, SqlDb},
     eventstore::RedisEventStore,
     model::{HostDisposition, Source},
+    notifier::BlocklistNotifier,
     resolver::Resolver,
     sourceloader::SourceLoader,
 };
@@ -41,6 +42,12 @@ async fn main() -> Result<()> {
             .context("Failed to initialize Redis EventStore")?,
     );
 
+    let notifier = Arc::new(
+        BlocklistNotifier::new(&redis_url)
+            .await
+            .context("Failed to initialize blocklist notifier")?,
+    );
+
     let db = Arc::new(
         SqlDb::new(&config.database)
             .await
@@ -53,10 +60,13 @@ async fn main() -> Result<()> {
             &config.blocklist,
             db.clone(),
             eventstore.clone(),
+            notifier.clone(),
             shutdown.guard(),
         )
         .await,
     );
+
+    let _subscriber = notifier.spawn_subscriber(blocklist.clone(), shutdown.guard());
 
     if db.get_source("webmanaged").await.is_err() {
         log::info!("Creating webmanaged allowlist source");

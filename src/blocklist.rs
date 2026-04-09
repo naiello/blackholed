@@ -36,6 +36,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::eventstore::EventStore;
 use crate::model::{BlockEvent, HostDisposition, SourceHost};
+use crate::notifier::{BlocklistNotification, BlocklistNotifier};
 use crate::{config::BlocklistConfig, types::Shared};
 
 pub struct BlocklistAuthority<BP: BlocklistProvider> {
@@ -47,6 +48,7 @@ pub struct BlocklistAuthority<BP: BlocklistProvider> {
     provider: Arc<BP>,
     global_pause_active: Arc<AtomicBool>,
     client_pause_active: Arc<RwLock<HashSet<IpAddr>>>,
+    notifier: Arc<BlocklistNotifier>,
     _event_logger: AbortOnDropHandle<()>,
     _pause_manager: AbortOnDropHandle<()>,
 }
@@ -62,6 +64,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         config: &BlocklistConfig,
         provider: Arc<BP>,
         eventstore: Arc<ES>,
+        notifier: Arc<BlocklistNotifier>,
         shutdown: ShutdownGuard,
     ) -> Self {
         let (blocked_tx, blocked_rx) = broadcast::channel(1024);
@@ -92,16 +95,29 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             provider,
             global_pause_active,
             client_pause_active,
+            notifier,
             _event_logger: AbortOnDropHandle::new(event_logger_handle),
             _pause_manager: AbortOnDropHandle::new(pause_manager_handle),
         };
 
-        authority.reload().await;
+        authority.reload_quiet().await;
 
         authority
     }
 
+    /// Reload the full blocklist from the DB and notify other instances.
     pub async fn reload(&self) {
+        self.reload_quiet().await;
+        self.notifier
+            .publish(BlocklistNotification::Full)
+            .await
+            .inspect_err(|err| log::warn!("Failed to publish blocklist notification: {}", err))
+            .ok();
+    }
+
+    /// Reload the full blocklist from the DB without publishing a notification.
+    /// Used on startup and by the PubSub subscriber to avoid notification loops.
+    pub(crate) async fn reload_quiet(&self) {
         log::info!("Reloading blocklist");
 
         let mut blocked = self
@@ -140,7 +156,20 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         log::info!("Blocklist reload complete");
     }
 
+    /// Reload a single host from the DB and notify other instances.
     pub async fn reload_host(&self, name: &str) -> Result<()> {
+        self.reload_host_quiet(name).await?;
+        self.notifier
+            .publish(BlocklistNotification::Host(name.to_string()))
+            .await
+            .inspect_err(|err| log::warn!("Failed to publish blocklist notification: {}", err))
+            .ok();
+        Ok(())
+    }
+
+    /// Reload a single host from the DB without publishing a notification.
+    /// Used by the PubSub subscriber to avoid notification loops.
+    pub(crate) async fn reload_host_quiet(&self, name: &str) -> Result<()> {
         log::debug!("Reloading single host: {}", name);
 
         let lower_name = LowerName::from_str(name)
