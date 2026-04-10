@@ -1,3 +1,4 @@
 /target
+/tasks
 .blackholed.toml
 blackholed.db
