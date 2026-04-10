@@ -46,7 +46,7 @@ where
         .map_err(ApiError::Internal)?;
 
     // Update BlocklistAuthority for immediate effect
-    state.blocklist.set_global_pause(true);
+    state.blocklist.set_global_pause(true).await;
 
     Ok(Json(PauseStatusResponse {
         is_paused: true,
@@ -71,7 +71,7 @@ where
         .map_err(ApiError::Internal)?;
 
     // Update BlocklistAuthority for immediate effect
-    state.blocklist.set_global_pause(false);
+    state.blocklist.set_global_pause(false).await;
 
     Ok(Json(MessageResponse {
         message: "Global pause removed".to_string(),

@@ -57,7 +57,7 @@ where
         .map_err(ApiError::Internal)?;
 
     // Update BlocklistAuthority for immediate effect
-    state.blocklist.set_global_pause(true);
+    state.blocklist.set_global_pause(true).await;
 
     // Return the active pause banner HTML
     let html = format!(
@@ -105,7 +105,7 @@ where
         .map_err(ApiError::Internal)?;
 
     // Update BlocklistAuthority for immediate effect
-    state.blocklist.set_global_pause(false);
+    state.blocklist.set_global_pause(false).await;
 
     // Return the pause control HTML
     let html = "<div id=\"global-pause-banner\" class=\"mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg\"> \

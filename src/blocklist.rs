@@ -202,17 +202,35 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         Ok(())
     }
 
-    pub fn set_global_pause(&self, is_paused: bool) {
+    pub fn set_global_pause_quiet(&self, is_paused: bool) {
         self.global_pause_active.store(is_paused, Ordering::Relaxed);
     }
 
-    pub async fn set_client_pause(&self, client: IpAddr, is_paused: bool) {
+    pub async fn set_global_pause(&self, is_paused: bool) {
+        self.set_global_pause_quiet(is_paused);
+        self.notifier
+            .publish(BlocklistNotification::GlobalPause(is_paused))
+            .await
+            .inspect_err(|err| log::warn!("Failed to publish pause notification: {}", err))
+            .ok();
+    }
+
+    pub async fn set_client_pause_quiet(&self, client: IpAddr, is_paused: bool) {
         let mut client_pause_active = self.client_pause_active.write().await;
         if is_paused {
             client_pause_active.insert(client);
         } else {
             client_pause_active.remove(&client);
         }
+    }
+
+    pub async fn set_client_pause(&self, client: IpAddr, is_paused: bool) {
+        self.set_client_pause_quiet(client, is_paused).await;
+        self.notifier
+            .publish(BlocklistNotification::ClientPause(client, is_paused))
+            .await
+            .inspect_err(|err| log::warn!("Failed to publish pause notification: {}", err))
+            .ok();
     }
 
     fn wildcards(&self, host: &Name) -> Vec<LowerName> {

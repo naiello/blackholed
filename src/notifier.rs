@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -15,6 +16,8 @@ const CHANNEL: &str = "blackholed:blocklist-reload";
 pub enum BlocklistNotification {
     Full,
     Host(String),
+    GlobalPause(bool),
+    ClientPause(IpAddr, bool),
 }
 
 impl BlocklistNotification {
@@ -22,16 +25,26 @@ impl BlocklistNotification {
         match self {
             Self::Full => "full".to_string(),
             Self::Host(name) => format!("host:{}", name),
+            Self::GlobalPause(active) => format!("global-pause:{}", active),
+            Self::ClientPause(ip, active) => format!("client-pause:{}:{}", ip, active),
         }
     }
 
     fn from_payload(payload: &str) -> Option<Self> {
         if payload == "full" {
             Some(Self::Full)
+        } else if let Some(name) = payload.strip_prefix("host:") {
+            Some(Self::Host(name.to_string()))
+        } else if let Some(val) = payload.strip_prefix("global-pause:") {
+            val.parse::<bool>().ok().map(Self::GlobalPause)
+        } else if let Some(rest) = payload.strip_prefix("client-pause:") {
+            // Format: "<ip>:<bool>" — split from the right to handle IPv6 addresses
+            let sep = rest.rfind(':')?;
+            let ip: IpAddr = rest[..sep].parse().ok()?;
+            let active: bool = rest[sep + 1..].parse().ok()?;
+            Some(Self::ClientPause(ip, active))
         } else {
-            payload
-                .strip_prefix("host:")
-                .map(|name| Self::Host(name.to_string()))
+            None
         }
     }
 }
@@ -157,6 +170,12 @@ impl BlocklistNotifier {
                                         err
                                     );
                                 }
+                            }
+                            Some(BlocklistNotification::GlobalPause(active)) => {
+                                blocklist.set_global_pause_quiet(active);
+                            }
+                            Some(BlocklistNotification::ClientPause(ip, active)) => {
+                                blocklist.set_client_pause_quiet(ip, active).await;
                             }
                             None => {
                                 log::warn!(
