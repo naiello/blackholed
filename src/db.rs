@@ -189,7 +189,7 @@ impl Db for SqlDb {
             .and_then(|row| async move { parse_source_row(&row) })
             .filter_map(|source| async move {
                 source
-                    .inspect_err(|err| log::error!("Invalid source entry in database: {:?}", err))
+                    .inspect_err(|err| tracing::error!(error = ?err, "Invalid source entry in database"))
                     .ok()
             })
     }
@@ -329,7 +329,7 @@ impl Db for SqlDb {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                host.inspect_err(|err| tracing::error!(error = ?err, "Invalid host entry in database"))
                     .ok()
             })
     }
@@ -377,7 +377,7 @@ impl Db for SqlDb {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                host.inspect_err(|err| tracing::error!(error = ?err, "Invalid host entry in database"))
                     .ok()
             })
     }
@@ -404,7 +404,7 @@ impl Db for SqlDb {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                host.inspect_err(|err| tracing::error!(error = ?err, "Invalid host entry in database"))
                     .ok()
             })
     }
@@ -425,7 +425,7 @@ impl Db for SqlDb {
             .map_err(anyhow::Error::from)
             .and_then(|row| async move { parse_host_row(&row) })
             .filter_map(|host| async move {
-                host.inspect_err(|err| log::error!("Invalid host entry in database: {:?}", err))
+                host.inspect_err(|err| tracing::error!(error = ?err, "Invalid host entry in database"))
                     .ok()
             })
     }

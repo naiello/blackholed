@@ -75,11 +75,7 @@ impl Resolver {
             })?;
 
             catalog.upsert(zone_name.into(), vec![Arc::new(authority)]);
-            log::info!(
-                "Loaded zone {} from {:?}",
-                zone_config.name,
-                zone_config.file
-            );
+            tracing::info!(zone = zone_config.name, file = ?zone_config.file, "Loaded zone");
         }
 
         catalog.upsert(Name::root().into(), vec![blocklist, Arc::new(upstream)]);
@@ -103,19 +99,19 @@ impl Resolver {
         server.register_socket(udp);
         server.register_listener(tcp, Duration::from_secs(5));
 
-        log::info!("Server is listening on {addr}");
+        tracing::info!(addr = %addr, "DNS server listening");
 
         let handle = shutdown.spawn_task_fn(|guard| async move {
             select! {
                 result = server.block_until_done() => {
                     match result {
-                        Ok(_) => log::error!("DNS Resolver exited unexpectedly"),
-                        Err(err) => log::error!("DNS Resolver exited unexpectedly: {err}"),
+                        Ok(_) => tracing::error!("DNS resolver exited unexpectedly"),
+                        Err(err) => tracing::error!(error = %err, "DNS resolver exited unexpectedly"),
                     }
                 },
                 _ = guard.cancelled() => {
-                    log::info!("DNS Resolver shutting down");
-                    if let Err(err) = server.shutdown_gracefully().await { log::error!("Error while stopping DNS resolver: {err}") }
+                    tracing::info!("DNS resolver shutting down");
+                    if let Err(err) = server.shutdown_gracefully().await { tracing::error!(error = %err, "Error while stopping DNS resolver") }
                 },
             }
         });

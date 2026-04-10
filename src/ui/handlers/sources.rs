@@ -141,7 +141,7 @@ where
 
     // If source is auto-managed (has URL), trigger immediate reload
     if source.url.is_some() {
-        log::info!("Triggering automatic reload for new source: {}", source.id);
+        tracing::info!(source_id = source.id.as_str(), "Triggering automatic reload for new source");
         state
             .sourceloader
             .reload_source(source.id.clone())

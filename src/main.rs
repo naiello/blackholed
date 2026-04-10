@@ -1,6 +1,7 @@
-use std::{env, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
+use tracing_subscriber::{EnvFilter, fmt};
 use blackholed::{
     api::Api,
     blocklist::BlocklistAuthority,
@@ -18,20 +19,19 @@ use tokio_graceful::Shutdown;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    if env::var("BLACKHOLE_LOG").is_err() {
-        unsafe {
-            env::set_var(
-                "BLACKHOLE_LOG",
-                "info,hickory_server::server=warn,tokio_graceful::shutdown=warn",
-            );
-        }
+    let filter = EnvFilter::try_from_env("BLACKHOLE_LOG").unwrap_or_else(|_| {
+        EnvFilter::new("info,hickory_server::server=warn,tokio_graceful::shutdown=warn")
+    });
+    if std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        fmt().with_env_filter(filter).init();
+    } else {
+        fmt().json().with_env_filter(filter).init();
     }
-    pretty_env_logger::try_init_timed_custom_env("BLACKHOLE_LOG")?;
 
-    log::info!("Initializing");
+    tracing::info!("Initializing");
 
     let config = Config::load().context("Failed to load configuration")?;
-    log::info!("Configuration loaded successfully");
+    tracing::info!("Configuration loaded successfully");
 
     let shutdown = Shutdown::default();
 
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
     let _subscriber = notifier.spawn_subscriber(blocklist.clone(), shutdown.guard());
 
     if db.get_source("webmanaged").await.is_err() {
-        log::info!("Creating webmanaged allowlist source");
+        tracing::info!("Creating webmanaged allowlist source");
         let source = Source {
             id: "webmanaged".to_string(),
             url: None,
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
         .await
         .context("Error while performing graceful shutdown")?;
 
-    log::info!("Shutdown complete");
+    tracing::info!("Shutdown complete");
 
     Ok(())
 }

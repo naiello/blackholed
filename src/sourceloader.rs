@@ -184,7 +184,7 @@ fn scan_directories(blocklist_dirs: &[PathBuf], allowlist_dirs: &[PathBuf]) -> V
                     }
                 }
                 Err(err) => {
-                    log::warn!("Cannot read directory {}: {}", dir.display(), err);
+                    tracing::warn!(dir = %dir.display(), error = %err, "Cannot read directory");
                 }
             }
         }
@@ -209,7 +209,7 @@ fn setup_file_watcher(
         .collect();
 
     if all_dirs.is_empty() {
-        log::info!("No existing source directories to watch");
+        tracing::info!("No existing source directories to watch");
         return None;
     }
 
@@ -231,16 +231,16 @@ fn setup_file_watcher(
     ) {
         Ok(w) => w,
         Err(err) => {
-            log::error!("Failed to create file watcher: {}", err);
+            tracing::error!(error = %err, "Failed to create file watcher");
             return None;
         }
     };
 
     for dir in &all_dirs {
         if let Err(err) = watcher.watch(dir, notify::RecursiveMode::NonRecursive) {
-            log::error!("Failed to watch directory {}: {}", dir.display(), err);
+            tracing::error!(dir = %dir.display(), error = %err, "Failed to watch directory");
         } else {
-            log::info!("Watching directory for changes: {}", dir.display());
+            tracing::info!(dir = %dir.display(), "Watching directory for changes");
         }
     }
 
@@ -258,7 +258,7 @@ fn setup_file_watcher(
                     let _ = change_tx.send(()).await;
                 }
                 _ = guard.cancelled() => {
-                    log::info!("File watcher shutting down");
+                    tracing::info!("File watcher shutting down");
                     break;
                 }
             }
@@ -270,17 +270,17 @@ fn setup_file_watcher(
 
 impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
     async fn run(mut self, shutdown: ShutdownGuard) {
-        log::info!("Starting SourceLoader background task");
+        tracing::info!("Starting SourceLoader background task");
 
         // Perform initial file source sync
         if let Err(err) = self.sync_and_refresh_file_sources(true).await {
-            log::error!("Error during initial file source sync: {:?}", err);
+            tracing::error!(error = ?err, "Error during initial file source sync");
         }
 
         // Perform initial refresh of URL sources
-        log::info!("Performing initial source refresh");
+        tracing::info!("Performing initial source refresh");
         if let Err(err) = self.refresh_all().await {
-            log::error!("Error during initial source refresh: {:?}", err);
+            tracing::error!(error = ?err, "Error during initial source refresh");
         }
 
         // Then enter interval loop — tick() fires immediately, so consume the first tick
@@ -291,23 +291,23 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(err) = self.refresh_all().await {
-                        log::error!("Error while refreshing sources: {:?}", err);
+                        tracing::error!(error = ?err, "Error while refreshing sources");
                     }
                 }
                 Some(source_id) = self.reload_rx.recv() => {
-                    log::info!("Manual reload requested for source: {}", source_id);
+                    tracing::info!(source_id, "Manual reload requested");
                     if let Err(err) = self.handle_manual_reload(source_id).await {
-                        log::error!("Error during manual reload: {:?}", err);
+                        tracing::error!(error = ?err, "Error during manual reload");
                     }
                 }
                 Some(()) = self.file_change_rx.recv() => {
-                    log::info!("File change detected, syncing file sources");
+                    tracing::info!("File change detected, syncing file sources");
                     if let Err(err) = self.sync_and_refresh_file_sources(false).await {
-                        log::error!("Error during file source sync: {:?}", err);
+                        tracing::error!(error = ?err, "Error during file source sync");
                     }
                 }
                 _ = shutdown.cancelled() => {
-                    log::info!("Source loader shutting down");
+                    tracing::info!("Source loader shutting down");
                     break;
                 }
             }
@@ -340,16 +340,9 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         // Delete sources whose files no longer exist on disk
         for source in &existing_file_sources {
             if !expected.contains_key(&source.id) {
-                log::info!(
-                    "File source {} no longer has a file on disk, removing",
-                    source.id
-                );
+                tracing::info!(source_id = source.id, "File source no longer has a file on disk, removing");
                 if let Err(err) = self.db.delete_source(&source.id).await {
-                    log::error!(
-                        "Failed to delete orphaned file source {}: {:?}",
-                        source.id,
-                        err
-                    );
+                    tracing::error!(source_id = source.id, error = ?err, "Failed to delete orphaned file source");
                 }
             }
         }
@@ -370,13 +363,9 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
                     created_at: now,
                     updated_at: now,
                 };
-                log::info!(
-                    "Creating new file source: {} from {}",
-                    id,
-                    file.path.display()
-                );
+                tracing::info!(source_id = id.as_str(), path = %file.path.display(), "Creating new file source");
                 if let Err(err) = self.db.put_source(source.clone()).await {
-                    log::error!("Failed to create file source {}: {:?}", id, err);
+                    tracing::error!(source_id = id.as_str(), error = ?err, "Failed to create file source");
                     continue;
                 }
                 sources_to_refresh.push(source);
@@ -413,7 +402,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             return Ok(());
         }
 
-        log::info!("Refreshing {} file sources", sources_to_refresh.len());
+        tracing::info!(count = sources_to_refresh.len(), "Refreshing file sources");
 
         let refresh_time = Utc::now();
         let mut any_success = false;
@@ -422,11 +411,11 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             match self.refresh(source.clone(), refresh_time).await {
                 Ok(true) => {
                     any_success = true;
-                    log::info!("Successfully refreshed file source: {}", source.id);
+                    tracing::info!(source_id = source.id, "Successfully refreshed file source");
                 }
                 Ok(false) => {}
                 Err(err) => {
-                    log::error!("Failed to refresh file source {}: {:?}", source.id, err);
+                    tracing::error!(source_id = source.id, error = ?err, "Failed to refresh file source");
                 }
             }
         }
@@ -438,24 +427,22 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), fields(source_id = source_id.as_str()))]
     async fn handle_manual_reload(&self, source_id: String) -> Result<()> {
-        log::info!("Processing manual reload for source: {}", source_id);
+        tracing::info!("Processing manual reload");
 
         // Fetch source from database
         let source = match self.db.get_source(&source_id).await {
             Ok(source) => source,
             Err(err) => {
-                log::warn!("Source {} not found: {:?}", source_id, err);
+                tracing::warn!(error = ?err, "Source not found");
                 bail!("Source not found");
             }
         };
 
         // Verify source is auto-managed (has URL or path)
         if source.url.is_none() && source.path.is_none() {
-            log::warn!(
-                "Source {} is manually-managed, cannot reload from URL/path",
-                source_id
-            );
+            tracing::warn!("Source is manually-managed, cannot reload from URL/path");
             bail!("Source is manually-managed");
         }
 
@@ -463,29 +450,23 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         let refresh_time = Utc::now();
         match self.refresh(source.clone(), refresh_time).await {
             Ok(true) => {
-                log::info!(
-                    "Successfully completed manual reload for source: {}",
-                    source_id
-                );
+                tracing::info!("Manual reload complete");
                 self.blocklist_authority.reload().await;
                 Ok(())
             }
             Ok(false) => {
-                log::info!(
-                    "Source {} reload lock held by another node, skipping manual reload",
-                    source_id
-                );
+                tracing::info!("Reload lock held by another node, skipping manual reload");
                 Ok(())
             }
             Err(err) => {
-                log::error!("Failed manual reload for source {}: {:?}", source_id, err);
+                tracing::error!(error = ?err, "Failed manual reload");
                 Err(err)
             }
         }
     }
 
     async fn refresh_all(&self) -> Result<()> {
-        log::info!("Checking for stale sources");
+        tracing::info!("Checking for stale sources");
 
         let start_time = Utc::now();
         let stale_threshold = start_time - self.stale_age;
@@ -504,10 +485,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             return Ok(());
         }
 
-        log::info!(
-            "Found {} stale sources to refresh",
-            sources_to_refresh.len()
-        );
+        tracing::info!(count = sources_to_refresh.len(), "Found stale sources to refresh");
 
         let mut successful_refreshes = 0;
         let mut failed_refreshes = 0;
@@ -516,21 +494,17 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             match self.refresh(source.clone(), start_time).await {
                 Ok(true) => {
                     successful_refreshes += 1;
-                    log::info!("Successfully refreshed source: {}", source.id);
+                    tracing::info!(source_id = source.id, "Successfully refreshed source");
                 }
                 Ok(false) => {}
                 Err(err) => {
                     failed_refreshes += 1;
-                    log::error!("Failed to refresh source {}: {:?}", source.id, err);
+                    tracing::error!(source_id = source.id, error = ?err, "Failed to refresh source");
                 }
             }
         }
 
-        log::info!(
-            "Source refresh cycle complete: {} successful, {} failed",
-            successful_refreshes,
-            failed_refreshes
-        );
+        tracing::info!(successful = successful_refreshes, failed = failed_refreshes, "Source refresh cycle complete");
 
         if successful_refreshes > 0 {
             self.blocklist_authority.reload().await;
@@ -541,6 +515,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
 
     /// Refresh a single source. Returns `Ok(true)` if the refresh ran, `Ok(false)` if another
     /// node holds the per-source lock and the work was skipped.
+    #[tracing::instrument(skip_all, fields(source_id = source.id.as_str()))]
     async fn refresh(&self, source: Source, refresh_time: DateTime<Utc>) -> Result<bool> {
         let lock_key = format!("blackhole:source-reload:{}", source.id);
         let lock = match self
@@ -550,15 +525,12 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         {
             Ok(lock) => lock,
             Err(_) => {
-                log::info!(
-                    "Source {} reload lock held by another node, skipping",
-                    source.id
-                );
+                tracing::info!("Reload lock held by another node, skipping");
                 return Ok(false);
             }
         };
 
-        log::debug!("Refreshing source: {}", source.id);
+        tracing::debug!("Refreshing source");
 
         let content = self
             .fetch_content(&source)
@@ -569,11 +541,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             .await
             .context("Failed to parse source content")?;
 
-        log::info!(
-            "Parsed {} hosts from source {}",
-            parsed_hosts.len(),
-            source.id
-        );
+        tracing::info!(host_count = parsed_hosts.len(), "Parsed hosts from source");
 
         let hosts: Vec<SourceHost> = parsed_hosts
             .into_iter()
@@ -597,11 +565,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
             .collect()
             .await;
 
-        log::debug!(
-            "Deleting {} stale hosts from source {}",
-            stale_hosts.len(),
-            source.id
-        );
+        tracing::debug!(stale_count = stale_hosts.len(), "Deleting stale hosts from source");
 
         for stale_host in stale_hosts {
             self.db
@@ -629,7 +593,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
         source: &Source,
     ) -> Result<Pin<Box<dyn AsyncBufRead + Send + Unpin>>> {
         if let Some(url) = &source.url {
-            log::debug!("Fetching source from URL: {}", url);
+            tracing::debug!(url, "Fetching source from URL");
 
             let response = self
                 .http_client
@@ -648,7 +612,7 @@ impl<DB: Db, BP: BlocklistProvider> SourceLoaderTask<DB, BP> {
 
             Ok(Box::pin(BufReader::new(StreamReader::new(stream))))
         } else if let Some(path) = &source.path {
-            log::debug!("Loading source from file: {}", path);
+            tracing::debug!(path, "Loading source from file");
 
             let file = tokio::fs::File::open(path)
                 .await

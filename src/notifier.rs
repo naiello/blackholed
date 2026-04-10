@@ -70,10 +70,7 @@ impl BlocklistNotifier {
             .as_nanos();
         let instance_id = format!("{}-{}", std::process::id(), nanos);
 
-        log::info!(
-            "Blocklist notifier initialized with instance ID: {}",
-            instance_id
-        );
+        tracing::info!(instance_id, "Blocklist notifier initialized");
 
         Ok(Self {
             instance_id,
@@ -89,7 +86,7 @@ impl BlocklistNotifier {
         conn.publish::<_, _, ()>(CHANNEL, &message)
             .await
             .context("Failed to publish blocklist change notification")?;
-        log::debug!("Published blocklist notification: {}", payload);
+        tracing::debug!(payload, "Published blocklist notification");
         Ok(())
     }
 
@@ -105,21 +102,18 @@ impl BlocklistNotifier {
         let client = self.client.clone();
 
         let handle = shutdown.spawn_task_fn(move |guard| async move {
-            log::info!("Starting blocklist reload subscriber");
+            tracing::info!("Starting blocklist reload subscriber");
 
             let mut pubsub = match client.get_async_pubsub().await {
                 Ok(ps) => ps,
                 Err(err) => {
-                    log::error!("Failed to create PubSub connection: {}", err);
+                    tracing::error!(error = %err, "Failed to create PubSub connection");
                     return;
                 }
             };
 
             if let Err(err) = pubsub.subscribe(CHANNEL).await {
-                log::error!(
-                    "Failed to subscribe to blocklist reload channel: {}",
-                    err
-                );
+                tracing::error!(error = %err, "Failed to subscribe to blocklist reload channel");
                 return;
             }
 
@@ -131,7 +125,7 @@ impl BlocklistNotifier {
                         let raw: String = match msg.get_payload() {
                             Ok(p) => p,
                             Err(err) => {
-                                log::warn!("Failed to decode PubSub message: {}", err);
+                                tracing::warn!(error = %err, "Failed to decode PubSub message");
                                 continue;
                             }
                         };
@@ -142,21 +136,17 @@ impl BlocklistNotifier {
                         let (sender_id, payload) = match (parts.next(), parts.next()) {
                             (Some(id), Some(p)) => (id, p),
                             _ => {
-                                log::warn!("Malformed blocklist notification: {}", raw);
+                                tracing::warn!(raw, "Malformed blocklist notification");
                                 continue;
                             }
                         };
 
                         if sender_id == instance_id {
-                            log::trace!("Skipping own blocklist notification");
+                            tracing::trace!("Skipping own blocklist notification");
                             continue;
                         }
 
-                        log::info!(
-                            "Received blocklist change notification from {}: {}",
-                            sender_id,
-                            payload
-                        );
+                        tracing::info!(sender = sender_id, payload, "Received blocklist change notification");
 
                         match BlocklistNotification::from_payload(payload) {
                             Some(BlocklistNotification::Full) => {
@@ -164,11 +154,7 @@ impl BlocklistNotifier {
                             }
                             Some(BlocklistNotification::Host(name)) => {
                                 if let Err(err) = blocklist.reload_host_quiet(&name).await {
-                                    log::error!(
-                                        "Failed to reload host {} from notification: {}",
-                                        name,
-                                        err
-                                    );
+                                    tracing::error!(host = name, error = %err, "Failed to reload host from notification");
                                 }
                             }
                             Some(BlocklistNotification::GlobalPause(active)) => {
@@ -178,15 +164,12 @@ impl BlocklistNotifier {
                                 blocklist.set_client_pause_quiet(ip, active).await;
                             }
                             None => {
-                                log::warn!(
-                                    "Unknown blocklist notification payload: {}",
-                                    payload
-                                );
+                                tracing::warn!(payload, "Unknown blocklist notification payload");
                             }
                         }
                     }
                     _ = guard.cancelled() => {
-                        log::info!("Blocklist reload subscriber shutting down");
+                        tracing::info!("Blocklist reload subscriber shutting down");
                         break;
                     }
                 }

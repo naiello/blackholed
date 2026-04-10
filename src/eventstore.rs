@@ -334,17 +334,17 @@ impl EventStore for RedisEventStore {
 
 impl RedisEventStoreSweeper {
     async fn run(mut self, shutdown: ShutdownGuard) {
-        log::info!("Starting Redis sweeper task");
+        tracing::info!("Starting Redis sweeper task");
         let mut interval = time::interval(self.interval);
         loop {
             select! {
                 _ = interval.tick() => {
                     if let Err(e) = self.sweep().await {
-                        log::error!("Error during sweeper cleanup: {}", e);
+                        tracing::error!(error = %e, "Error during sweeper cleanup");
                     }
                 },
                 _ = shutdown.cancelled() => {
-                    log::info!("Redis sweeper shutting down");
+                    tracing::info!("Redis sweeper shutting down");
                     break;
                 },
             }
@@ -352,7 +352,7 @@ impl RedisEventStoreSweeper {
     }
 
     async fn sweep(&mut self) -> Result<()> {
-        log::info!("Sweeping stale entries from Redis");
+        tracing::info!("Sweeping stale entries from Redis");
 
         let now = Utc::now().timestamp();
         let mut total_events_removed = 0;
@@ -377,12 +377,12 @@ impl RedisEventStoreSweeper {
             match rm_events {
                 Ok(removed) => {
                     if removed > 0 {
-                        log::debug!("Removed {} stale event(s) from {}", removed, key);
+                        tracing::debug!(removed, client = %client.ip, "Removed stale events");
                         total_events_removed += removed;
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to clean up blocked events for {}: {}", client.ip, e);
+                    tracing::error!(client = %client.ip, error = %e, "Failed to clean up blocked events");
                 }
             }
         }
@@ -397,19 +397,19 @@ impl RedisEventStoreSweeper {
         match rm_clients {
             Ok(removed) => {
                 if removed > 0 {
-                    log::debug!("Removed {} stale client(s) from clients set", removed);
+                    tracing::debug!(removed, "Removed stale clients");
                     total_clients_removed = removed;
                 }
             }
             Err(e) => {
-                log::error!("Failed to clean up stale clients: {}", e);
+                tracing::error!(error = %e, "Failed to clean up stale clients");
             }
         }
 
-        log::info!(
-            "Sweeper completed: removed {} event(s) and {} client(s)",
-            total_events_removed,
-            total_clients_removed
+        tracing::info!(
+            events_removed = total_events_removed,
+            clients_removed = total_clients_removed,
+            "Sweeper completed",
         );
 
         Ok(())

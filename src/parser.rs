@@ -41,17 +41,12 @@ pub async fn parse_list<R: AsyncBufRead + Unpin>(reader: R) -> Result<Vec<Parsed
             Ok(Some(host)) => hosts.push(host),
             Ok(None) => {} // Skip (comment, empty, or invalid wildcard)
             Err(e) => {
-                log::warn!(
-                    "Failed to parse line {}: {} - {}",
-                    line_number,
-                    line.trim(),
-                    e
-                );
+                tracing::warn!(line_number, line = line.trim(), error = %e, "Failed to parse line");
             }
         }
     }
 
-    log::debug!("Parsed {} hosts from source", hosts.len());
+    tracing::debug!(count = hosts.len(), "Parsed hosts from source");
     Ok(hosts)
 }
 
@@ -97,7 +92,7 @@ fn parse_line(line: &str) -> Result<Option<ParsedHost>> {
 
     // Check wildcard depth (must be at least 2 layers deep)
     if is_invalid_wildcard(&normalized) {
-        log::trace!("Skipping invalid wildcard: {}", domain_str);
+        tracing::trace!(domain = domain_str, "Skipping invalid wildcard");
         return Ok(None);
     }
 

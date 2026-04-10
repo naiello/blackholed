@@ -54,7 +54,7 @@ where
     if let Some(url) = &req.url {
         validate_source_url(url)?;
     } else {
-        log::info!("Creating manually-managed source: {}", req.id);
+        tracing::info!(source_id = req.id.as_str(), "Creating manually-managed source");
     }
 
     let now = Utc::now();
@@ -71,7 +71,7 @@ where
 
     // If source is auto-managed (has URL), trigger immediate reload
     if source.url.is_some() {
-        log::info!("Triggering automatic reload for new source: {}", source.id);
+        tracing::info!(source_id = source.id.as_str(), "Triggering automatic reload for new source");
         state
             .sourceloader
             .reload_source(source.id.clone())

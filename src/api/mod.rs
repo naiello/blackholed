@@ -55,7 +55,7 @@ impl Api {
         let addr = format!("0.0.0.0:{}", config.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-        log::info!("Management API and Web UI listening on {}", addr);
+        tracing::info!(addr, "Management API and Web UI listening");
 
         let handle = shutdown.into_spawn_task_fn(|guard| async move {
             let server = axum::serve(
@@ -67,7 +67,7 @@ impl Api {
             });
 
             if let Err(err) = server.await {
-                log::error!("Server died unexpectedly: {err}")
+                tracing::error!(error = %err, "Server died unexpectedly")
             }
         });
 

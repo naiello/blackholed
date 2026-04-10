@@ -111,14 +111,14 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::Full)
             .await
-            .inspect_err(|err| log::warn!("Failed to publish blocklist notification: {}", err))
+            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish blocklist notification"))
             .ok();
     }
 
     /// Reload the full blocklist from the DB without publishing a notification.
     /// Used on startup and by the PubSub subscriber to avoid notification loops.
     pub(crate) async fn reload_quiet(&self) {
-        log::info!("Reloading blocklist");
+        tracing::info!("Reloading blocklist");
 
         let mut blocked = self
             .provider
@@ -126,7 +126,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             .filter_map(|host| async move {
                 LowerName::from_str(&host.name)
                     .map(|name| (name, HostDisposition::Block))
-                    .inspect_err(|err| log::error!("Skipping invalid blocklist host: {:?}", err))
+                    .inspect_err(|err| tracing::error!(error = ?err, "Skipping invalid blocklist host"))
                     .ok()
             })
             .collect::<HashMap<_, _>>()
@@ -138,22 +138,18 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             .filter_map(|host| async move {
                 LowerName::from_str(&host.name)
                     .map(|name| (name, HostDisposition::Allow))
-                    .inspect_err(|err| log::error!("Skipping invalid allowlist host: {:?}", err))
+                    .inspect_err(|err| tracing::error!(error = ?err, "Skipping invalid allowlist host"))
                     .ok()
             })
             .collect::<HashMap<_, _>>()
             .await;
 
-        log::info!(
-            "Reload resulted in {} blocked, {} allowed hosts",
-            blocked.len(),
-            allowed.len()
-        );
+        tracing::info!(blocked = blocked.len(), allowed = allowed.len(), "Reload resulted in blocked and allowed hosts");
 
         blocked.extend(allowed);
         *self.blocklist.write().await = blocked;
 
-        log::info!("Blocklist reload complete");
+        tracing::info!("Blocklist reload complete");
     }
 
     /// Reload a single host from the DB and notify other instances.
@@ -162,7 +158,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::Host(name.to_string()))
             .await
-            .inspect_err(|err| log::warn!("Failed to publish blocklist notification: {}", err))
+            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish blocklist notification"))
             .ok();
         Ok(())
     }
@@ -170,7 +166,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
     /// Reload a single host from the DB without publishing a notification.
     /// Used by the PubSub subscriber to avoid notification loops.
     pub(crate) async fn reload_host_quiet(&self, name: &str) -> Result<()> {
-        log::debug!("Reloading single host: {}", name);
+        tracing::debug!(host = name, "Reloading single host");
 
         let lower_name = LowerName::from_str(name)
             .map_err(|err| anyhow::anyhow!("Invalid host name '{}': {:?}", name, err))?;
@@ -198,7 +194,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             }
         }
 
-        log::info!("Reloaded single host {lower_name}");
+        tracing::info!(host = %lower_name, "Reloaded single host");
         Ok(())
     }
 
@@ -211,7 +207,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::GlobalPause(is_paused))
             .await
-            .inspect_err(|err| log::warn!("Failed to publish pause notification: {}", err))
+            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish pause notification"))
             .ok();
     }
 
@@ -229,7 +225,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::ClientPause(client, is_paused))
             .await
-            .inspect_err(|err| log::warn!("Failed to publish pause notification: {}", err))
+            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish pause notification"))
             .ok();
     }
 
@@ -254,7 +250,7 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             match_list.append(&mut self.wildcards(name));
         }
 
-        log::trace!("match_list: {:?}", match_list);
+        tracing::trace!(match_list = ?match_list);
         let blocklist = self.blocklist.read().await;
         let disposition = match_list.iter().find_map(|entry| blocklist.get(entry));
         matches!(disposition, Some(HostDisposition::Block))
@@ -337,24 +333,24 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
 
             self.blocked_tx
                 .send(event)
-                .inspect_err(|_| log::warn!("Failed to tx blocked event, no subscribers"))
+                .inspect_err(|_| tracing::warn!("Failed to tx blocked event, no subscribers"))
                 .ok();
 
             if self.is_paused(request_info.src.ip()).await {
-                log::info!(
-                    "Would have blocked query for {} ({}) from {}",
-                    request_info.query.name(),
-                    request_info.query.query_type(),
-                    request_info.src.ip(),
+                tracing::info!(
+                    name = %request_info.query.name(),
+                    record_type = %request_info.query.query_type(),
+                    client = %request_info.src.ip(),
+                    "Would have blocked query",
                 );
                 return Skip;
             }
 
-            log::info!(
-                "Blocked query for {} ({}) from {}",
-                request_info.query.name(),
-                request_info.query.query_type(),
-                request_info.src.ip(),
+            tracing::info!(
+                name = %request_info.query.name(),
+                record_type = %request_info.query.query_type(),
+                client = %request_info.src.ip(),
+                "Blocked query",
             );
         }
 
@@ -380,7 +376,7 @@ struct PauseManager<ES: EventStore> {
 
 impl<ES: EventStore> PauseManager<ES> {
     async fn run(&self, shutdown: ShutdownGuard) {
-        log::info!("Starting pause manager");
+        tracing::info!("Starting pause manager");
 
         let mut interval = time::interval(Duration::from_secs(60));
         loop {
@@ -388,16 +384,16 @@ impl<ES: EventStore> PauseManager<ES> {
                 _ = interval.tick() => {
                     self.check_global_pause()
                         .await
-                        .inspect_err(|err| log::error!("Failed to check global pause: {err}"))
+                        .inspect_err(|err| tracing::error!(error = %err, "Failed to check global pause"))
                         .ok();
 
                     self.check_client_pauses()
                         .await
-                        .inspect_err(|err| log::error!("Failed to check client pauses: {err}"))
+                        .inspect_err(|err| tracing::error!(error = %err, "Failed to check client pauses"))
                         .ok();
                 },
                 _ = shutdown.cancelled() => {
-                    log::info!("Pause manager shutting down");
+                    tracing::info!("Pause manager shutting down");
                     break;
                 },
             }
@@ -429,7 +425,7 @@ impl<ES: EventStore> PauseManager<ES> {
                     .get_client_pause(client.ip)
                     .await
                     .inspect_err(|err| {
-                        log::error!("Failed to inspect client pause for {}: {}", client.ip, err)
+                        tracing::error!(client = %client.ip, error = %err, "Failed to inspect client pause")
                     })
                     .ok()
                     .flatten()
@@ -470,7 +466,7 @@ pub trait BlocklistProvider {
 
 impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {
     async fn run(&mut self, shutdown: ShutdownGuard) {
-        log::info!("Starting BlocklistAuthority event persistence task");
+        tracing::info!("Starting BlocklistAuthority event persistence task");
 
         loop {
             select! {
@@ -478,20 +474,20 @@ impl<ES: EventStore> BlocklistAuthorityEventLogger<ES> {
                     match event {
                         Ok(event) => {
                             if let Err(e) = self.eventstore.put_block_event(&event).await {
-                                log::error!("Failed to persist block event to EventStore: {}", e);
+                                tracing::error!(error = %e, "Failed to persist block event to EventStore");
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                            log::warn!("Event persistence task lagged, skipped {} events", skipped);
+                            tracing::warn!(skipped, "Event persistence task lagged");
                         }
                         Err(broadcast::error::RecvError::Closed) => {
-                            log::error!("Block event channel closed, stopping persistence task");
+                            tracing::error!("Block event channel closed, stopping persistence task");
                             break;
                         }
                     }
                 },
                 _ = shutdown.cancelled() => {
-                    log::info!("Event logger shutting down");
+                    tracing::info!("Event logger shutting down");
                     break;
                 },
             }
