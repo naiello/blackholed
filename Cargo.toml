@@ -17,7 +17,7 @@ hickory-server = { version = "0.25.2", features = ["resolver", "rustls-platform-
 nix = { version = "0.27.1", features = ["signal"] }
 notify = "7"
 openssl = { version = "0.10.68", features = ["vendored"] }
-redis = { version = "1.0.2", features = ["tokio-comp"] }
+redis = { version = "1.0.2", features = ["tokio-comp", "connection-manager"] }
 rslock = { version = "0.7", default-features = false, features = ["tokio-comp"] }
 regex = "1.10.2"
 reqwest = { version = "0.11.20", features = ["rustls-tls", "stream"] }

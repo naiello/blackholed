@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use tracing_subscriber::{EnvFilter, fmt};
 use blackholed::{
     api::Api,
     blocklist::BlocklistAuthority,
@@ -16,6 +15,7 @@ use blackholed::{
 use chrono::Utc;
 use hickory_server::resolver::Name;
 use tokio_graceful::Shutdown;
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,7 +25,12 @@ async fn main() -> Result<()> {
     if std::io::IsTerminal::is_terminal(&std::io::stderr()) {
         fmt().with_env_filter(filter).init();
     } else {
-        fmt().json().with_env_filter(filter).init();
+        fmt()
+            .json()
+            .with_env_filter(filter)
+            .with_current_span(true)
+            .flatten_event(true)
+            .init();
     }
 
     tracing::info!("Initializing");

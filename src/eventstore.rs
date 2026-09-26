@@ -47,7 +47,7 @@ impl Shared for RedisEventStore {}
 
 #[derive(Clone)]
 struct RedisEventStoreConnection {
-    redis: redis::aio::MultiplexedConnection,
+    redis: redis::aio::ConnectionManager,
     client_ttl: TimeDelta,
 }
 
@@ -67,7 +67,7 @@ impl RedisEventStore {
 
         let conn = RedisEventStoreConnection {
             redis: client
-                .get_multiplexed_async_connection()
+                .get_connection_manager()
                 .await
                 .context("Failed to open connection to Redis")?,
             client_ttl: config.client_ttl(),
