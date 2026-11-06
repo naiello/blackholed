@@ -111,7 +111,9 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::Full)
             .await
-            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish blocklist notification"))
+            .inspect_err(
+                |err| tracing::warn!(error = %err, "Failed to publish blocklist notification"),
+            )
             .ok();
     }
 
@@ -126,7 +128,9 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             .filter_map(|host| async move {
                 LowerName::from_str(&host.name)
                     .map(|name| (name, HostDisposition::Block))
-                    .inspect_err(|err| tracing::error!(error = ?err, "Skipping invalid blocklist host"))
+                    .inspect_err(
+                        |err| tracing::error!(error = ?err, "Skipping invalid blocklist host"),
+                    )
                     .ok()
             })
             .collect::<HashMap<_, _>>()
@@ -138,13 +142,19 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             .filter_map(|host| async move {
                 LowerName::from_str(&host.name)
                     .map(|name| (name, HostDisposition::Allow))
-                    .inspect_err(|err| tracing::error!(error = ?err, "Skipping invalid allowlist host"))
+                    .inspect_err(
+                        |err| tracing::error!(error = ?err, "Skipping invalid allowlist host"),
+                    )
                     .ok()
             })
             .collect::<HashMap<_, _>>()
             .await;
 
-        tracing::info!(blocked = blocked.len(), allowed = allowed.len(), "Reload resulted in blocked and allowed hosts");
+        tracing::info!(
+            blocked = blocked.len(),
+            allowed = allowed.len(),
+            "Reload resulted in blocked and allowed hosts"
+        );
 
         blocked.extend(allowed);
         *self.blocklist.write().await = blocked;
@@ -158,7 +168,9 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
         self.notifier
             .publish(BlocklistNotification::Host(name.to_string()))
             .await
-            .inspect_err(|err| tracing::warn!(error = %err, "Failed to publish blocklist notification"))
+            .inspect_err(
+                |err| tracing::warn!(error = %err, "Failed to publish blocklist notification"),
+            )
             .ok();
         Ok(())
     }
@@ -337,21 +349,13 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
                 .ok();
 
             if self.is_paused(request_info.src.ip()).await {
-                tracing::info!(
-                    name = %request_info.query.name(),
-                    record_type = %request_info.query.query_type(),
-                    client = %request_info.src.ip(),
-                    "Would have blocked query",
-                );
+                log_query(&request_info, false, true);
                 return Skip;
             }
 
-            tracing::info!(
-                name = %request_info.query.name(),
-                record_type = %request_info.query.query_type(),
-                client = %request_info.src.ip(),
-                "Blocked query",
-            );
+            log_query(&request_info, true, true);
+        } else {
+            log_query(&request_info, false, false);
         }
 
         result
@@ -366,6 +370,17 @@ impl<BP: BlocklistProvider + Sync + Send> Authority for BlocklistAuthority<BP> {
             "Blocklist cannot serve NSEC records",
         ))))
     }
+}
+
+fn log_query(request_info: &RequestInfo<'_>, blocked: bool, unpause_would_block: bool) {
+    tracing::info!(
+        name = %request_info.query.name(),
+        record_type = %request_info.query.query_type(),
+        client = %request_info.src.ip(),
+        blocked,
+        unpause_would_block,
+        "CANONICAL-DNS-QUERY"
+    );
 }
 
 struct PauseManager<ES: EventStore> {
