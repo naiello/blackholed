@@ -151,8 +151,8 @@ impl<BP: BlocklistProvider> BlocklistAuthority<BP> {
             .await;
 
         tracing::info!(
-            blocked = blocked.len(),
-            allowed = allowed.len(),
+            blocked_host_count = blocked.len(),
+            allowed_host_count = allowed.len(),
             "Reload resulted in blocked and allowed hosts"
         );
 
