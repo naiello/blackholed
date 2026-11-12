@@ -74,6 +74,7 @@ where
         </div> \
         <button \
             hx-delete=\"/pause/global\" \
+            hx-disabled-elt=\"this\" \
             hx-target=\"#global-pause-banner\" \
             hx-swap=\"outerHTML\" \
             class=\"bg-blue-600 dark:bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition\"> \
@@ -110,7 +111,7 @@ where
     // Return the pause control HTML
     let html = "<div id=\"global-pause-banner\" class=\"mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg\"> \
     <h3 class=\"font-semibold text-gray-900 dark:text-gray-100 mb-3\">Pause Blocking Globally</h3> \
-    <form hx-post=\"/pause/global\" hx-swap=\"outerHTML\" hx-target=\"#global-pause-banner\" class=\"flex gap-2\"> \
+    <form hx-post=\"/pause/global\" hx-disabled-elt=\"find button\" hx-confirm=\"Pause blocking for every client on the network?\" hx-swap=\"outerHTML\" hx-target=\"#global-pause-banner\" class=\"flex gap-2\"> \
         <select name=\"duration_seconds\" class=\"flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500\"> \
             <option value=\"3600\">1 hour</option> \
             <option value=\"86400\">1 day</option> \
@@ -182,6 +183,7 @@ where
         </div> \
         <button \
             hx-delete=\"/pause/clients/{}\" \
+            hx-disabled-elt=\"this\" \
             hx-target=\"#client-pause-banner-{}\" \
             hx-swap=\"outerHTML\" \
             class=\"bg-blue-600 dark:bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition\"> \
@@ -228,7 +230,7 @@ where
     let html = format!(
         "<div id=\"client-pause-banner-{}\" class=\"mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg\"> \
     <h3 class=\"font-semibold text-gray-900 dark:text-gray-100 mb-3\">Pause Blocking for <span class=\"font-mono\">{}</span></h3> \
-    <form hx-post=\"/pause/clients/{}\" hx-swap=\"outerHTML\" hx-target=\"#client-pause-banner-{}\" class=\"flex gap-2\"> \
+    <form hx-post=\"/pause/clients/{}\" hx-disabled-elt=\"find button\" hx-swap=\"outerHTML\" hx-target=\"#client-pause-banner-{}\" class=\"flex gap-2\"> \
         <select name=\"duration_seconds\" class=\"flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500\"> \
             <option value=\"3600\">1 hour</option> \
             <option value=\"86400\">1 day</option> \
