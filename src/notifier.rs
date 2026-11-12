@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
@@ -12,6 +12,9 @@ use crate::blocklist::{BlocklistAuthority, BlocklistProvider};
 use crate::types::Shared;
 
 const CHANNEL: &str = "blackholed:blocklist-reload";
+
+/// Delay before resubscribing after the PubSub connection drops or fails to open
+const RESUBSCRIBE_DELAY: Duration = Duration::from_secs(5);
 
 pub enum BlocklistNotification {
     Full,
@@ -51,16 +54,18 @@ impl BlocklistNotification {
 
 pub struct BlocklistNotifier {
     instance_id: String,
-    conn: redis::aio::MultiplexedConnection,
+    // A ConnectionManager reconnects after Redis restarts; a bare connection
+    // stays dead and every later publish fails
+    conn: redis::aio::ConnectionManager,
     client: redis::Client,
 }
 
 impl BlocklistNotifier {
     pub async fn new(redis_url: &str) -> Result<Self> {
-        let client = redis::Client::open(redis_url)
-            .context("Failed to create Redis client for notifier")?;
+        let client =
+            redis::Client::open(redis_url).context("Failed to create Redis client for notifier")?;
         let conn = client
-            .get_multiplexed_async_connection()
+            .get_connection_manager()
             .await
             .context("Failed to open Redis connection for blocklist notifier")?;
 
@@ -83,9 +88,14 @@ impl BlocklistNotifier {
         let mut conn = self.conn.clone();
         let payload = notification.to_payload();
         let message = format!("{}:{}", self.instance_id, payload);
-        conn.publish::<_, _, ()>(CHANNEL, &message)
-            .await
-            .context("Failed to publish blocklist change notification")?;
+        // The ConnectionManager fails the first command after the connection drops
+        // and reconnects behind it, so one retry covers a Redis restart
+        if let Err(err) = conn.publish::<_, _, ()>(CHANNEL, &message).await {
+            tracing::debug!(error = %err, "Publish failed, retrying once");
+            conn.publish::<_, _, ()>(CHANNEL, &message)
+                .await
+                .context("Failed to publish blocklist change notification")?;
+        }
         tracing::debug!(payload, "Published blocklist notification");
         Ok(())
     }
@@ -104,78 +114,119 @@ impl BlocklistNotifier {
         let handle = shutdown.spawn_task_fn(move |guard| async move {
             tracing::info!("Starting blocklist reload subscriber");
 
-            let mut pubsub = match client.get_async_pubsub().await {
-                Ok(ps) => ps,
-                Err(err) => {
-                    tracing::error!(error = %err, "Failed to create PubSub connection");
-                    return;
-                }
-            };
-
-            if let Err(err) = pubsub.subscribe(CHANNEL).await {
-                tracing::error!(error = %err, "Failed to subscribe to blocklist reload channel");
-                return;
-            }
-
-            let mut stream = pubsub.on_message();
-
+            // The subscription ends when Redis restarts or the connection drops,
+            // so keep resubscribing until shutdown
+            let mut resubscribing = false;
             loop {
-                tokio::select! {
-                    Some(msg) = stream.next() => {
-                        let raw: String = match msg.get_payload() {
-                            Ok(p) => p,
-                            Err(err) => {
-                                tracing::warn!(error = %err, "Failed to decode PubSub message");
-                                continue;
-                            }
-                        };
-
-                        // Message format: "{instance_id}:{payload}"
-                        // Instance IDs contain "-" but not ":", so splitn(2) is safe.
-                        let mut parts = raw.splitn(2, ':');
-                        let (sender_id, payload) = match (parts.next(), parts.next()) {
-                            (Some(id), Some(p)) => (id, p),
-                            _ => {
-                                tracing::warn!(raw, "Malformed blocklist notification");
-                                continue;
-                            }
-                        };
-
-                        if sender_id == instance_id {
-                            tracing::trace!("Skipping own blocklist notification");
-                            continue;
+                match subscribe(&client).await {
+                    Ok(pubsub) => {
+                        if resubscribing {
+                            tracing::info!("Resubscribed to blocklist reload channel");
+                            // Notifications published while unsubscribed are lost; reload
+                            // to catch up on blocklist changes (pauses are polled anyway)
+                            blocklist.reload_quiet().await;
                         }
 
-                        tracing::info!(sender = sender_id, payload, "Received blocklist change notification");
-
-                        match BlocklistNotification::from_payload(payload) {
-                            Some(BlocklistNotification::Full) => {
-                                blocklist.reload_quiet().await;
-                            }
-                            Some(BlocklistNotification::Host(name)) => {
-                                if let Err(err) = blocklist.reload_host_quiet(&name).await {
-                                    tracing::error!(host = name, error = %err, "Failed to reload host from notification");
+                        let mut stream = pubsub.into_on_message();
+                        loop {
+                            tokio::select! {
+                                msg = stream.next() => match msg {
+                                    Some(msg) => handle_message(&instance_id, &blocklist, msg).await,
+                                    None => {
+                                        tracing::warn!("Blocklist reload subscription closed, resubscribing");
+                                        break;
+                                    }
+                                },
+                                _ = guard.cancelled() => {
+                                    tracing::info!("Blocklist reload subscriber shutting down");
+                                    return;
                                 }
-                            }
-                            Some(BlocklistNotification::GlobalPause(active)) => {
-                                blocklist.set_global_pause_quiet(active);
-                            }
-                            Some(BlocklistNotification::ClientPause(ip, active)) => {
-                                blocklist.set_client_pause_quiet(ip, active).await;
-                            }
-                            None => {
-                                tracing::warn!(payload, "Unknown blocklist notification payload");
                             }
                         }
                     }
+                    Err(err) => {
+                        tracing::error!(error = ?err, "Failed to subscribe to blocklist reload channel");
+                    }
+                }
+
+                resubscribing = true;
+                tokio::select! {
+                    _ = tokio::time::sleep(RESUBSCRIBE_DELAY) => {}
                     _ = guard.cancelled() => {
                         tracing::info!("Blocklist reload subscriber shutting down");
-                        break;
+                        return;
                     }
                 }
             }
         });
 
         AbortOnDropHandle::new(handle)
+    }
+}
+
+async fn subscribe(client: &redis::Client) -> Result<redis::aio::PubSub> {
+    let mut pubsub = client
+        .get_async_pubsub()
+        .await
+        .context("Failed to create PubSub connection")?;
+    pubsub
+        .subscribe(CHANNEL)
+        .await
+        .context("Failed to subscribe to blocklist reload channel")?;
+    Ok(pubsub)
+}
+
+async fn handle_message<BP>(instance_id: &str, blocklist: &BlocklistAuthority<BP>, msg: redis::Msg)
+where
+    BP: BlocklistProvider + Shared,
+{
+    let raw: String = match msg.get_payload() {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::warn!(error = %err, "Failed to decode PubSub message");
+            return;
+        }
+    };
+
+    // Message format: "{instance_id}:{payload}"
+    // Instance IDs contain "-" but not ":", so splitn(2) is safe.
+    let mut parts = raw.splitn(2, ':');
+    let (sender_id, payload) = match (parts.next(), parts.next()) {
+        (Some(id), Some(p)) => (id, p),
+        _ => {
+            tracing::warn!(raw, "Malformed blocklist notification");
+            return;
+        }
+    };
+
+    if sender_id == instance_id {
+        tracing::trace!("Skipping own blocklist notification");
+        return;
+    }
+
+    tracing::info!(
+        sender = sender_id,
+        payload,
+        "Received blocklist change notification"
+    );
+
+    match BlocklistNotification::from_payload(payload) {
+        Some(BlocklistNotification::Full) => {
+            blocklist.reload_quiet().await;
+        }
+        Some(BlocklistNotification::Host(name)) => {
+            if let Err(err) = blocklist.reload_host_quiet(&name).await {
+                tracing::error!(host = name, error = %err, "Failed to reload host from notification");
+            }
+        }
+        Some(BlocklistNotification::GlobalPause(active)) => {
+            blocklist.set_global_pause_quiet(active);
+        }
+        Some(BlocklistNotification::ClientPause(ip, active)) => {
+            blocklist.set_client_pause_quiet(ip, active).await;
+        }
+        None => {
+            tracing::warn!(payload, "Unknown blocklist notification payload");
+        }
     }
 }
