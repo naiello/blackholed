@@ -228,7 +228,7 @@ impl EventStore for RedisEventStoreConnection {
         let ts = conn
             .get::<_, Option<i64>>("pause#global")
             .await
-            .context("Failed to get client pause from Redis")?
+            .context("Failed to get global pause from Redis")?
             .and_then(|ts| DateTime::from_timestamp(ts, 0));
 
         Ok(ts)
@@ -246,7 +246,7 @@ impl EventStore for RedisEventStoreConnection {
         let key = format!("pause#{client}");
         conn.set::<_, _, ()>(&key, expires.timestamp())
             .await
-            .context("Failed to write global pause to Redis")?;
+            .context("Failed to write client pause to Redis")?;
 
         conn.expire_at::<_, ()>(&key, expires.timestamp())
             .await
@@ -270,7 +270,7 @@ impl EventStore for RedisEventStoreConnection {
         let key = format!("pause#{client}");
         conn.del::<_, ()>(key)
             .await
-            .context("Failed to delete global pause from Redis")
+            .context("Failed to delete client pause from Redis")
     }
 }
 
@@ -308,7 +308,9 @@ impl EventStore for RedisEventStore {
     }
 
     async fn put_global_pause(&self, expires: DateTime<Utc>) -> Result<()> {
-        self.conn.put_global_pause(expires).await
+        self.conn.put_global_pause(expires).await?;
+        tracing::info!(scope = "global", %expires, "Pause started");
+        Ok(())
     }
 
     async fn get_global_pause(&self) -> Result<Option<DateTime<Utc>>> {
@@ -316,11 +318,15 @@ impl EventStore for RedisEventStore {
     }
 
     async fn delete_global_pause(&self) -> Result<()> {
-        self.conn.delete_global_pause().await
+        self.conn.delete_global_pause().await?;
+        tracing::info!(scope = "global", "Pause ended");
+        Ok(())
     }
 
     async fn put_client_pause(&self, client: IpAddr, expires: DateTime<Utc>) -> Result<()> {
-        self.conn.put_client_pause(client, expires).await
+        self.conn.put_client_pause(client, expires).await?;
+        tracing::info!(scope = "client", %client, %expires, "Pause started");
+        Ok(())
     }
 
     async fn get_client_pause(&self, client: IpAddr) -> Result<Option<DateTime<Utc>>> {
@@ -328,7 +334,9 @@ impl EventStore for RedisEventStore {
     }
 
     async fn delete_client_pause(&self, client: IpAddr) -> Result<()> {
-        self.conn.delete_client_pause(client).await
+        self.conn.delete_client_pause(client).await?;
+        tracing::info!(scope = "client", %client, "Pause ended");
+        Ok(())
     }
 }
 
